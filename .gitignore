@@ -1,7 +1,3 @@
-# Local runtime (database data, bench, logs) - never committed
+# Local runtime (database data, logs, secrets) - never committed
 /local/
 .DS_Store
-
-# Dev symlink to the bench's Frappe Framework (Helpdesk's UI build links ../frappe/ui)
-/apps/frappe
-/sites
