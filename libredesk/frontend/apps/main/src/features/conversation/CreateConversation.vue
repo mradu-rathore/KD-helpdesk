@@ -1,8 +1,8 @@
 <template>
   <div
-    v-if="dialogOpen && expanded && !minimized"
-    class="fixed inset-0 z-50 bg-background/70 backdrop-blur-sm animate-in fade-in-0"
-    @click="expanded = false"
+    v-if="dialogOpen && !minimized"
+    class="fixed inset-0 z-50 bg-black/40 animate-in fade-in-0 max-sm:hidden"
+    @click="minimized = true"
   />
   <section
     v-if="dialogOpen"
@@ -145,12 +145,14 @@ onUnmounted(() => palette.setMacroContext(MACRO_CONTEXT.REPLY))
 
 const panelClass = computed(() => {
   const base =
-    'fixed z-50 flex flex-col overflow-hidden border border-border bg-background shadow-2xl animate-in fade-in-0 slide-in-from-bottom-4 duration-200 motion-reduce:animate-none'
-  if (minimized.value) return [base, 'bottom-0 inset-x-0 sm:inset-x-auto sm:right-4 sm:w-80 sm:rounded-t-lg']
-  if (expanded.value) return [base, 'inset-4 mx-auto max-w-5xl rounded-lg']
+    'fixed z-50 flex flex-col overflow-hidden border border-border bg-background shadow-2xl animate-in fade-in-0 duration-200 motion-reduce:animate-none'
+  // Minimized: docked bar bottom-right, so a draft can wait while you work
+  if (minimized.value) return [base, 'slide-in-from-bottom-4 bottom-0 inset-x-0 sm:inset-x-auto sm:right-4 sm:w-80 sm:rounded-t-lg']
+  if (expanded.value) return [base, 'zoom-in-95 inset-4 mx-auto max-w-5xl rounded-xl']
+  // KD: open as a centered modal (full screen on phones)
   return [
     base,
-    'inset-0 sm:inset-auto sm:bottom-0 sm:right-4 sm:w-[40rem] sm:h-[min(42rem,calc(100vh-2rem))] sm:rounded-t-lg'
+    'zoom-in-95 inset-0 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[min(44rem,calc(100vw-2rem))] sm:h-[min(42rem,calc(100vh-4rem))] sm:rounded-xl'
   ]
 })
 
@@ -167,8 +169,17 @@ const focusActiveForm = () => {
 
 watch([dialogOpen, minimized, channel], focusActiveForm, { flush: 'post' })
 
+// Escape tucks the modal away (draft kept) - unless a dropdown inside it is open
+const onKeydown = (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented || !dialogOpen.value || minimized.value) return
+  if (document.querySelector('[role="listbox"], [role="menu"], [data-radix-popper-content-wrapper]')) return
+  minimized.value = true
+}
+
 onMounted(() => {
   inboxStore.fetchInboxes()
   focusActiveForm()
+  window.addEventListener('keydown', onKeydown)
 })
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
