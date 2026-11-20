@@ -22,9 +22,12 @@ async function initApp () {
   const lang = config['app.lang'] || 'en-US'
   const langMessages = await api.getLanguage(lang)
 
-  // Set favicon.
-  if (config['app.favicon_url'])
-    setFavicon(config['app.favicon_url'])
+  // Set favicon. KD: the default setting (".../favicon.ico", often still
+  // pointing at localhost) keeps the KD logo from index.html; only a custom
+  // favicon URL replaces it.
+  const faviconURL = config['app.favicon_url']
+  if (faviconURL && !/\/favicon\.ico$/.test(faviconURL))
+    setFavicon(faviconURL)
 
   // Initialize i18n.
   const i18nConfig = {

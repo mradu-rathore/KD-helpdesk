@@ -456,6 +456,9 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.GET("/widget/assets/{all:*}", serveWidgetStaticFiles)
 	g.GET("/images/{all:*}", serveFrontendStaticFiles)
 	g.GET("/manifest.webmanifest", serveManifest)
+	g.GET("/favicon.ico", func(r *fastglue.Request) error {
+		return serveMainFrontendFile(r, "favicon.ico", "image/x-icon", "public, max-age=86400")
+	})
 	g.GET("/sw.js", serveServiceWorker)
 	g.GET("/static/public/{all:*}", serveStaticFiles)
 
