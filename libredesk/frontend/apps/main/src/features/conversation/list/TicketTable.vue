@@ -144,6 +144,7 @@
 </template>
 
 <script setup>
+import { statusClass } from '@main/constants/kdTickets'
 import { computed, defineComponent, h, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -243,16 +244,6 @@ function shortDate (value) {
 }
 
 // Zendesk badge colours: open = red, pending/replied = blue, solved = grey
-const STATUS_CLASSES = {
-  open: 'bg-red-600 text-white',
-  new: 'bg-amber-400 text-black',
-  replied: 'bg-blue-600 text-white',
-  pending: 'bg-blue-600 text-white',
-  snoozed: 'bg-violet-600 text-white',
-  resolved: 'bg-zinc-500 text-white',
-  closed: 'bg-zinc-700 text-white'
-}
-const statusClass = (status) => STATUS_CLASSES[String(status || '').toLowerCase()] || 'bg-zinc-500 text-white'
 
 function open (c) {
   const name = route.params.teamID

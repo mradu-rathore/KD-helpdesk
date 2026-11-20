@@ -34,6 +34,7 @@ COPY deploy/start.sh ./start.sh
 # Zendesk-style views + fictional KD sample data, loaded on first boot when
 # KD_LOAD_SAMPLE_DATA=true (see start.sh)
 COPY dev/seed.sql ./seed.sql
+COPY dev/seed-customers.sql ./seed-customers.sql
 RUN mkdir -p uploads && chown -R libredesk:libredesk /libredesk && chmod +x start.sh
 USER libredesk
 

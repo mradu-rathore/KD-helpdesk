@@ -251,7 +251,7 @@ const loginAction = () => {
       if (nextParam) {
         router.push(nextParam)
       } else {
-        router.push({ name: 'inboxes' })
+        router.push({ name: 'home' })
       }
     })
     .catch((error) => {

@@ -73,6 +73,11 @@ func upgrade(db *sqlx.DB, fs stuffbin.FileSystem, prompt bool) {
 		log.Fatalf("error checking migrations: %v", err)
 	}
 
+	// KD: our own tables (customers) live outside Libredesk's migrations.
+	if err := kdEnsureSchema(db); err != nil {
+		log.Fatalf("error creating KD tables: %v", err)
+	}
+
 	// No migrations to run.
 	if len(toRun) == 0 {
 		log.Printf("no upgrades to run. Database is up to date.")

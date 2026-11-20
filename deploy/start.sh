@@ -24,6 +24,12 @@ if [ "${KD_LOAD_SAMPLE_DATA:-false}" = "true" ]; then
     echo "Loading KD views and sample data..."
     psql -v ON_ERROR_STOP=1 -q -f seed.sql
   fi
+  # Sample customers (added later than the tickets, so checked on their own)
+  customers=$(psql -tAc "SELECT count(*) FROM kd_customers" || echo 1)
+  if [ "$customers" = "0" ]; then
+    echo "Loading KD sample customers..."
+    psql -v ON_ERROR_STOP=1 -q -f seed-customers.sql
+  fi
 fi
 
 exec ./libredesk --config config.toml

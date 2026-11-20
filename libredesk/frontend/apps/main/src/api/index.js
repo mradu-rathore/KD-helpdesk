@@ -204,6 +204,22 @@ const updateRole = (id, data) =>
   })
 const deleteRole = (id) => http.delete(`/api/v1/roles/${id}`)
 const getContacts = (params) => http.get('/api/v1/contacts', { params })
+// KD: customers (companies) and the dashboard
+const getCustomers = (params) => http.get('/api/v1/customers', { params })
+const getCustomer = (id) => http.get(`/api/v1/customers/${id}`)
+const createCustomer = (data) => http.post('/api/v1/customers', data)
+const updateCustomer = (id, data) => http.put(`/api/v1/customers/${id}`, data)
+const deleteCustomer = (id) => http.delete(`/api/v1/customers/${id}`)
+const linkCustomerContact = (id, contactID) =>
+  http.post(`/api/v1/customers/${id}/contacts`, { contact_id: contactID })
+const unlinkCustomerContact = (id, contactID) =>
+  http.delete(`/api/v1/customers/${id}/contacts/${contactID}`)
+const getContactCustomer = (contactID) => http.get(`/api/v1/contacts/${contactID}/customer`)
+const getTicketCustomer = (uuid) => http.get(`/api/v1/conversations/${uuid}/customer`)
+const setTicketCustomer = (uuid, customerID) =>
+  http.put(`/api/v1/conversations/${uuid}/customer`, { customer_id: customerID || 0 })
+const getKdDashboard = (params) => http.get('/api/v1/kd/dashboard', { params })
+const getKdContacts = (params) => http.get('/api/v1/kd/contacts', { params })
 const getContact = (id) => http.get(`/api/v1/contacts/${id}`)
 const createContact = (data) =>
   http.post('/api/v1/contacts', data, {
@@ -873,6 +889,18 @@ export default {
   searchContacts,
   removeAssignee,
   getContacts,
+  getCustomers,
+  getCustomer,
+  createCustomer,
+  updateCustomer,
+  deleteCustomer,
+  linkCustomerContact,
+  unlinkCustomerContact,
+  getContactCustomer,
+  getTicketCustomer,
+  setTicketCustomer,
+  getKdDashboard,
+  getKdContacts,
   getContact,
   createContact,
   updateContact,

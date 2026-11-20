@@ -216,6 +216,9 @@ func main() {
 	}
 
 	checkPendingUpgrade(db)
+	if err := kdEnsureSchema(db); err != nil {
+		log.Fatalf("error creating KD tables: %v", err)
+	}
 
 	// Load app settings from DB into the Koanf instance.
 	settings := initSettings(db)

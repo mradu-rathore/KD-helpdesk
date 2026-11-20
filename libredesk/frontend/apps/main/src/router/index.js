@@ -33,11 +33,36 @@ const routes = [
     path: '/',
     component: () => import('@main/App.vue'),
     children: [
+      // KD pages
+      {
+        path: 'home',
+        name: 'home',
+        component: () => import('@main/views/kd/HomeView.vue'),
+        meta: { title: 'Home', hidePageHeader: true, kdPage: true }
+      },
+      {
+        path: 'dashboard',
+        name: 'dashboard',
+        component: () => import('@main/views/kd/DashboardView.vue'),
+        meta: { title: 'Dashboard', hidePageHeader: true, kdPage: true }
+      },
+      {
+        path: 'customers',
+        name: 'customers',
+        component: () => import('@main/views/kd/CustomersView.vue'),
+        meta: { title: 'Customers', hidePageHeader: true, kdPage: true }
+      },
+      {
+        path: 'customers/:id',
+        name: 'customer-detail',
+        component: () => import('@main/views/kd/CustomerDetailView.vue'),
+        meta: { title: 'Customer', hidePageHeader: true, kdPage: true }
+      },
       {
         path: 'contacts',
         name: 'contacts',
         component: () => import('@main/views/contact/ContactsView.vue'),
-        meta: { titleKey: 'contact.allContacts' }
+        meta: { titleKey: 'contact.allContacts', hidePageHeader: true, kdPage: true }
       },
       {
         path: 'contacts/:id',
@@ -687,7 +712,7 @@ const routes = [
   {
     path: '/:pathMatch(.*)*',
     redirect: () => {
-      return '/inboxes/assigned'
+      return '/home'
     }
   }
 ]
@@ -737,13 +762,14 @@ router.beforeEach((to, from, next) => {
   }
 
   const appSettingsStore = useAppSettingsStore()
-  const siteName = appSettingsStore.settings?.['app.site_name'] || 'libredesk'
+  const rawSiteName = appSettingsStore.settings?.['app.site_name']
+  const siteName = rawSiteName && rawSiteName.toLowerCase() !== 'libredesk' ? rawSiteName : 'KD Helpdesk'
   const i18n = getI18n()
   const typeKey = typeof to.meta?.typeKey === 'function' ? to.meta.typeKey(to) : ''
   const titleKey = typeKey || to.meta?.titleKey
   const pageTitle = titleKey && i18n
     ? i18n.global.t(titleKey, to.meta?.titleCount || 1)
-    : ''
+    : to.meta?.title || ''
   document.title = `${pageTitle} - ${siteName}`
   next()
 })

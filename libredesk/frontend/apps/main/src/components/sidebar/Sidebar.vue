@@ -66,6 +66,7 @@ import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@main/stores/user'
 import { useConversationStore } from '@main/stores/conversation'
 import { navIconMap } from '@main/constants/navIcons'
+import { useIsMobile } from '@shared-ui/composables'
 import { useInboxNavigation } from '@main/composables/useInboxNavigation'
 
 defineProps({
@@ -73,6 +74,7 @@ defineProps({
   userViews: { type: Array, default: () => [] },
   sharedViews: { type: Array, default: () => [] }
 })
+const isMobile = useIsMobile() // KD: desktop uses KdMainSidebar instead
 const userStore = useUserStore()
 const conversationStore = useConversationStore()
 const settingsStore = useAppSettingsStore()
@@ -171,7 +173,7 @@ onMounted(() => {
   >
     <!-- Contacts sidebar -->
     <template
-      v-if="route.matched.some((record) => record.name && record.name.startsWith('contact'))"
+      v-if="isMobile && route.matched.some((record) => record.name && (record.name.startsWith('contact') || record.meta?.kdPage))"
     >
       <Sidebar collapsible="offcanvas" class="sidebar-secondary">
         <SidebarSectionHeader :title="t('globals.terms.contact', 2)" />
@@ -197,6 +199,7 @@ onMounted(() => {
     <!-- Reports sidebar -->
     <template
       v-if="
+        isMobile &&
         userStore.hasReportTabPermissions &&
         route.matched.some((record) => record.name && record.name.startsWith('reports'))
       "
@@ -312,7 +315,7 @@ onMounted(() => {
     </template>
 
     <!-- Inbox sidebar -->
-    <template v-if="route.path && isInboxRoute(route.path)">
+    <template v-if="isMobile && route.path && isInboxRoute(route.path)">
       <Sidebar collapsible="offcanvas" class="sidebar-secondary">
         <SidebarSectionHeader :title="t('globals.terms.inbox')">
           <template #actions>

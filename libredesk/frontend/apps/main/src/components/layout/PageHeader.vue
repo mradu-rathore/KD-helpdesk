@@ -1,7 +1,7 @@
 <template>
   <div v-if="!isHidden" class="shrink-0">
     <div class="flex h-14 shrink-0 items-center gap-3 px-3">
-      <SidebarTrigger class="cursor-pointer" />
+      <SidebarTrigger v-if="hasSecondarySidebar" class="cursor-pointer" />
       <h1 class="ui-heading min-w-0 truncate">
         {{ title }}
       </h1>
@@ -16,6 +16,7 @@ import { Separator } from '@shared-ui/components/ui/separator'
 import { SidebarTrigger } from '@shared-ui/components/ui/sidebar'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useIsMobile } from '@shared-ui/composables'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -25,4 +26,9 @@ const title = computed(() => {
   return t(key, route.meta?.titleCount || 1)
 })
 const isHidden = computed(() => route.meta.hidePageHeader === true)
+// KD: on desktop only Admin and Account still have a second sidebar to toggle
+const isMobile = useIsMobile()
+const hasSecondarySidebar = computed(
+  () => isMobile.value || route.path.startsWith('/admin') || route.path.startsWith('/account')
+)
 </script>

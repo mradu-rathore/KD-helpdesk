@@ -1,35 +1,15 @@
 <template>
   <div class="flex h-dvh w-full gap-1 bg-canvas p-1 text-foreground">
-    <SidebarProvider v-if="!isMobile" style="--sidebar-width: 3rem" class="w-auto z-50">
-      <ShadcnSidebar collapsible="none" class="overflow-hidden rounded-xl">
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <PrimaryNavItems variant="rail" />
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <NotificationBell />
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>{{ t('globals.terms.notification', 2) }}</p>
-                </TooltipContent>
-              </Tooltip>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarNavUser />
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarFooter>
-      </ShadcnSidebar>
-    </SidebarProvider>
+    <!-- KD: one labelled sidebar (search, notifications, pages, views) -->
+    <KdMainSidebar
+      v-if="!isMobile"
+      :userViews="viewStore.views"
+      :sharedViews="sharedViewStore.sharedViewList"
+      @create-view="createView"
+      @edit-view="editView"
+      @delete-view="deleteView"
+      @create-conversation="openCreateConversation()"
+    />
 
     <!-- Main sidebar that collapses -->
     <div class="flex-1 min-w-0">
@@ -45,7 +25,7 @@
         <div
           class="flex h-full min-h-0 flex-col overflow-hidden rounded-xl"
           :class="
-            route.path.startsWith('/inboxes') && route.name !== 'search'
+            (route.path.startsWith('/inboxes') && route.name !== 'search') || route.meta.kdPage
               ? 'bg-canvas'
               : 'border border-border bg-card'
           "
@@ -59,7 +39,11 @@
           <PageHeader />
 
           <!-- Main content -->
-          <RouterView class="min-h-0 flex-1" />
+          <RouterView v-slot="{ Component }">
+            <KeepAlive :include="KEEP_ALIVE">
+              <component :is="Component" class="min-h-0 flex-1" />
+            </KeepAlive>
+          </RouterView>
         </div>
         <ViewForm v-model:openDialog="openCreateViewForm" v-model:view="view" />
       </Sidebar>
@@ -117,23 +101,13 @@ import CreateConversation from '@/features/conversation/CreateConversation.vue'
 import { hasNewConversationDraft } from '@/features/conversation/useNewConversationDraft.js'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import {
-  Sidebar as ShadcnSidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarMenu,
-  SidebarGroupContent,
-  SidebarMenuItem,
-  SidebarProvider
-} from '@shared-ui/components/ui/sidebar'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@shared-ui/components/ui/tooltip'
-import SidebarNavUser from '@main/components/sidebar/SidebarNavUser.vue'
-import NotificationBell from '@main/components/sidebar/NotificationBell.vue'
-import PrimaryNavItems from '@main/components/sidebar/PrimaryNavItems.vue'
+import KdMainSidebar from '@main/components/sidebar/KdMainSidebar.vue'
 import { useIsMobile } from '@shared-ui/composables'
 import api from '@main/api'
 import { usePushNotifications } from '@/composables/usePushNotifications'
+
+// KD: these pages keep their state and scroll position between visits
+const KEEP_ALIVE = ['HomeView', 'DashboardView', 'CustomersView', 'ContactsView', 'InboxLayout']
 
 const route = useRoute()
 const emitter = useEmitter()
@@ -202,7 +176,25 @@ const unlockAudio = () => {
 document.addEventListener('click', unlockAudio)
 document.addEventListener('touchstart', unlockAudio)
 
+// KD: fetch page code in the background so first clicks don't wait on it
+const preloadPages = () => {
+  const load = () => {
+    import('@main/views/kd/HomeView.vue')
+    import('@main/views/kd/DashboardView.vue')
+    import('@main/views/kd/CustomersView.vue')
+    import('@main/views/kd/CustomerDetailView.vue')
+    import('@main/layouts/inbox/InboxLayout.vue')
+    import('@main/views/inbox/InboxView.vue')
+    import('@main/views/conversation/ConversationDetailView.vue')
+    import('@main/views/contact/ContactsView.vue')
+    import('@main/views/contact/ContactDetailView.vue')
+  }
+  if ('requestIdleCallback' in window) window.requestIdleCallback(load, { timeout: 3000 })
+  else setTimeout(load, 1500)
+}
+
 onMounted(() => {
+  preloadPages()
   initToaster()
   listenViewRefresh()
   emitter.on(EMITTER_EVENTS.OPEN_CREATE_CONVERSATION, openCreateConversation)

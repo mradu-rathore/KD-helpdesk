@@ -25,6 +25,9 @@ vi.mock('@main/features/conversation/Conversation.vue', () => ({
 vi.mock('@main/features/conversation/sidebar/ConversationSideBar.vue', () => ({
   default: { setup: () => () => h('div') }
 }))
+vi.mock('@main/features/conversation/sidebar/TicketPropertiesPanel.vue', () => ({
+  default: { setup: () => () => h('div') }
+}))
 
 import ConversationDetailView from './ConversationDetailView.vue'
 

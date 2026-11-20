@@ -13,6 +13,26 @@
       </div>
 
       <div>
+        <p :class="LABEL">Customer</p>
+        <CustomerPicker
+          :model-value="customer"
+          :allow-none="customerSource === 'ticket'"
+          none-label="Clear (use the requester's customer)"
+          @select="selectCustomer"
+        />
+        <p v-if="customerSource === 'requester'" class="mt-1 text-xs text-muted-foreground">
+          From the requester
+        </p>
+        <router-link
+          v-if="customer"
+          :to="{ name: 'customer-detail', params: { id: customer.id } }"
+          class="mt-1 inline-block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          {{ customer.open_tickets }} open · {{ customer.tickets }} total tickets
+        </router-link>
+      </div>
+
+      <div>
         <p :class="LABEL">{{ t('globals.terms.assignee') }}</p>
         <SelectAgentCombobox
           v-model="conv.assigned_user_id"
@@ -67,7 +87,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConversationStore } from '@/stores/conversation'
 import { useUserStore } from '@/stores/user'
@@ -77,6 +97,12 @@ import SelectComboBox from '@main/components/combobox/SelectCombobox.vue'
 import SelectAgentCombobox from '@main/components/combobox/SelectAgentCombobox.vue'
 import SelectTeamCombobox from '@main/components/combobox/SelectTeamCombobox.vue'
 import SelectTagCombobox from '@main/components/combobox/SelectTagCombobox.vue'
+import CustomerPicker from '@/features/customer/CustomerPicker.vue'
+import { invalidateCached } from '@main/composables/useCachedResource'
+import { useEmitter } from '@main/composables/useEmitter'
+import { EMITTER_EVENTS } from '@main/constants/emitterEvents'
+import { handleHTTPError } from '@shared-ui/utils/http.js'
+import api from '@main/api'
 
 const LABEL = 'mb-1 text-xs font-medium text-muted-foreground'
 
@@ -88,6 +114,54 @@ const requesterName = computed(() => {
   const c = conv.value?.contact
   return c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : ''
 })
+
+// KD: the ticket's customer (company) - set on the ticket, or the requester's
+const emitter = useEmitter()
+const customer = ref(null)
+const customerSource = ref(null)
+const customerCache = new Map() // uuid -> { customer, source }, so tab switches are instant
+
+watch(
+  () => conv.value?.uuid,
+  async (uuid) => {
+    if (!uuid) return
+    const cached = customerCache.get(uuid)
+    customer.value = cached?.customer ?? null
+    customerSource.value = cached?.source ?? null
+    try {
+      const res = await api.getTicketCustomer(uuid)
+      customerCache.set(uuid, res.data.data)
+      if (conv.value?.uuid !== uuid) return
+      customer.value = res.data.data.customer
+      customerSource.value = res.data.data.source
+    } catch {
+      // no access or offline: leave the field empty
+    }
+  },
+  { immediate: true }
+)
+
+async function selectCustomer (next) {
+  const uuid = conv.value.uuid
+  const previous = { customer: customer.value, source: customerSource.value }
+  customer.value = next // optimistic
+  customerSource.value = next ? 'ticket' : null
+  try {
+    const res = await api.setTicketCustomer(uuid, next?.id)
+    customerCache.set(uuid, res.data.data)
+    invalidateCached('customer')
+    if (conv.value?.uuid !== uuid) return
+    customer.value = res.data.data.customer
+    customerSource.value = res.data.data.source
+  } catch (err) {
+    customer.value = previous.customer
+    customerSource.value = previous.source
+    emitter.emit(EMITTER_EVENTS.SHOW_TOAST, {
+      variant: 'destructive',
+      description: handleHTTPError(err).message
+    })
+  }
+}
 
 function selectAgent (agent) {
   if (agent.value === 'none') return conversationStore.removeAssignee('user')

@@ -74,6 +74,9 @@
               </DropdownMenu>
             </div>
 
+            <!-- KD: the contact's customer (company) -->
+            <ContactCustomerField v-if="contact.type !== 'visitor'" :contact-id="contact.id" />
+
             <div
               v-if="contact.external_user_id"
               class="flex items-center gap-1.5 text-xs text-muted-foreground"
@@ -155,6 +158,7 @@
 </template>
 
 <script setup>
+import ContactCustomerField from '@/features/customer/ContactCustomerField.vue'
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format } from 'date-fns'

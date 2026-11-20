@@ -9,7 +9,7 @@
             :aria-current="item.isActive ? 'page' : undefined"
           >
             <component :is="item.icon" aria-hidden="true" />
-            <span v-if="variant === 'drawer'">{{ item.label }}</span>
+            <span v-if="variant !== 'rail'">{{ item.label }}</span>
           </router-link>
         </SidebarMenuButton>
       </TooltipTrigger>
@@ -25,55 +25,71 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useStorage } from '@vueuse/core'
-import { Inbox, Shield, FileLineChart, BookUser } from 'lucide-vue-next'
+import { Building2, Home, LayoutGrid, Shield, Ticket, Users } from 'lucide-vue-next'
 import { SidebarMenuButton, SidebarMenuItem } from '@shared-ui/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared-ui/components/ui/tooltip'
-import { useIsMobile } from '@shared-ui/composables'
 import { useUserStore } from '@main/stores/user'
 
-defineProps({
-  // 'rail' (desktop icon rail) or 'drawer' (mobile nav drawer).
-  variant: { type: String, default: 'rail' }
+const props = defineProps({
+  // 'rail' (icon only), 'drawer' (mobile nav drawer) or 'full' (KD desktop sidebar).
+  variant: { type: String, default: 'rail' },
+  includeAdmin: { type: Boolean, default: true }
 })
 
 const route = useRoute()
 const { t } = useI18n()
 const userStore = useUserStore()
-const isMobile = useIsMobile()
 
 const lastInboxPath = useStorage('lastInboxPath', '')
 
 const inboxTarget = computed(() => {
+  // KD: always the ticket list; open tickets stay in the tab strip
   if (!lastInboxPath.value) return { name: 'inboxes' }
-  if (!isMobile.value) return lastInboxPath.value
   return lastInboxPath.value.replace(/\/conversation\/[^/]+$/, '') || { name: 'inboxes' }
 })
 
+// KD: Frappe-style main navigation
 const items = computed(() =>
   [
     {
-      key: 'inboxes',
-      icon: Inbox,
-      label: t('globals.terms.inbox', 2),
+      key: 'home',
+      icon: Home,
+      label: 'Home',
+      to: { name: 'home' },
+      isActive: route.path.startsWith('/home'),
+      show: true
+    },
+    {
+      key: 'dashboard',
+      icon: LayoutGrid,
+      label: 'Dashboard',
+      to: { name: 'dashboard' },
+      isActive: route.path.startsWith('/dashboard') || route.path.startsWith('/reports'),
+      show: userStore.hasReportTabPermissions
+    },
+    {
+      key: 'tickets',
+      icon: Ticket,
+      label: 'Tickets',
       to: inboxTarget.value,
       isActive: route.path.startsWith('/inboxes'),
       show: true
     },
     {
+      key: 'customers',
+      icon: Building2,
+      label: 'Customers',
+      to: { name: 'customers' },
+      isActive: route.path.startsWith('/customers'),
+      show: userStore.can('contacts:read')
+    },
+    {
       key: 'contacts',
-      icon: BookUser,
+      icon: Users,
       label: t('globals.terms.contact', 2),
       to: { name: 'contacts' },
       isActive: route.path.startsWith('/contacts'),
       show: userStore.can('contacts:read_all')
-    },
-    {
-      key: 'reports',
-      icon: FileLineChart,
-      label: t('globals.terms.report', 2),
-      to: { name: 'reports' },
-      isActive: route.path.startsWith('/reports'),
-      show: userStore.hasReportTabPermissions
     },
     {
       key: 'admin',
@@ -81,7 +97,7 @@ const items = computed(() =>
       label: t('globals.terms.admin'),
       to: { name: userStore.can('general_settings:manage') ? 'general' : 'admin' },
       isActive: route.path.startsWith('/admin'),
-      show: userStore.hasAdminTabPermissions
+      show: userStore.hasAdminTabPermissions && props.includeAdmin
     }
   ].filter((item) => item.show)
 )
