@@ -1,13 +1,14 @@
 <template>
   <!-- KD: Zendesk flow on desktop - a full-width ticket table; opening a
        ticket replaces the table instead of splitting the screen. -->
-  <div v-if="!isSearchRoute && !isMobile" class="h-full min-h-0 w-full">
+  <div v-if="!isSearchRoute && !isMobile" class="flex h-full min-h-0 w-full flex-col">
+    <TicketTabs />
     <TicketTable
       v-show="isListRoute"
-      class="overflow-hidden rounded-xl border border-border bg-background"
+      class="min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-background"
     />
     <!-- Always mounted: the list route's view loads the tickets for the table -->
-    <div v-show="!isListRoute" class="h-full min-w-0">
+    <div v-show="!isListRoute" class="min-h-0 min-w-0 flex-1">
       <router-view v-slot="{ Component }">
         <keep-alive>
           <component :is="Component" />
@@ -70,6 +71,7 @@ import { useRoute } from 'vue-router'
 import { useElementSize, useStorage } from '@vueuse/core'
 import ConversationList from '@/features/conversation/list/ConversationList.vue'
 import TicketTable from '@/features/conversation/list/TicketTable.vue'
+import TicketTabs from '@/features/conversation/list/TicketTabs.vue'
 import { useIsMobile } from '@shared-ui/composables'
 import {
   ResizablePanelGroup,
