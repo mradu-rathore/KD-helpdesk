@@ -134,7 +134,8 @@ func (c *Manager) makeViewCountsQuery(userID int, teamIDs []int, listTypes []str
 	)
 
 	for _, view := range views {
-		countQuery, nextArgs, err := c.makeConversationsCountQuery(args, userID, teamIDs, listTypes, string(view.Filters), loc)
+		filters := expandViewPlaceholders(string(view.Filters), userID)
+		countQuery, nextArgs, err := c.makeConversationsCountQuery(args, userID, teamIDs, listTypes, filters, loc)
 		if err != nil {
 			return "", nil, err
 		}

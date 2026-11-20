@@ -334,7 +334,47 @@ onMounted(() => {
                   <span>{{ t('conversation.newConversation') }}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
+              <!-- KD: Zendesk-style shared views (Your unsolved tickets, Unassigned, ...) listed first -->
+              <Collapsible
+                class="group/collapsible"
+                defaultOpen
+                v-model:open="sharedViewInboxOpen"
+                v-if="sharedViews.length"
+              >
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton class="!p-2">
+                      <span class="sidebar-section-label">
+                        {{ t('globals.terms.view', 2) }}
+                      </span>
+                      <ChevronRight
+                        class="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"
+                      />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      <SidebarMenuSubItem v-for="view in sharedViews" :key="view.id">
+                        <SidebarMenuButton
+                          size="sm"
+                          :isActive="route.params.viewID == view.id"
+                          @click="navigateToViewInbox(view.id)"
+                        >
+                          <span class="flex-1 truncate" :title="view.name">{{ view.name }}</span>
+                          <SidebarCountBadge
+                            :count="viewSidebarCount(view.id)"
+                            :ariaLabel="
+                              t('conversation.sidebarCounts.view', viewSidebarCount(view.id))
+                            "
+                          />
+                        </SidebarMenuButton>
+                      </SidebarMenuSubItem>
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
+              <SidebarMenuItem v-if="false">
                 <SidebarMenuButton
                   :isActive="isActiveParent('/inboxes/assigned')"
                   @click="navigateToInbox('assigned')"
@@ -374,7 +414,7 @@ onMounted(() => {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              <SidebarMenuItem>
+              <SidebarMenuItem v-if="false">
                 <SidebarMenuButton
                   :isActive="isActiveParent('/inboxes/unassigned')"
                   @click="navigateToInbox('unassigned')"
@@ -395,7 +435,7 @@ onMounted(() => {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              <SidebarMenuItem>
+              <SidebarMenuItem v-if="false">
                 <SidebarMenuButton
                   :isActive="isActiveParent('/inboxes/all')"
                   @click="navigateToInbox('all')"
@@ -459,7 +499,7 @@ onMounted(() => {
                   <CollapsibleTrigger asChild>
                     <SidebarMenuButton class="group/item !p-2">
                       <span class="sidebar-section-label">
-                        {{ t('globals.terms.view', 2) }}
+                        My views
                       </span>
                       <div>
                         <Plus
@@ -520,46 +560,6 @@ onMounted(() => {
                 </SidebarMenuItem>
               </Collapsible>
 
-              <!-- Shared Views -->
-              <Collapsible
-                class="group/collapsible"
-                defaultOpen
-                v-model:open="sharedViewInboxOpen"
-                v-if="sharedViews.length"
-              >
-                <SidebarMenuItem>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton class="!p-2">
-                      <span class="sidebar-section-label">
-                        {{ t('globals.terms.sharedView', 2) }}
-                      </span>
-                      <ChevronRight
-                        class="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"
-                      />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-
-                  <CollapsibleContent>
-                    <SidebarMenuSub>
-                      <SidebarMenuSubItem v-for="view in sharedViews" :key="view.id">
-                        <SidebarMenuButton
-                          size="sm"
-                          :isActive="route.params.viewID == view.id"
-                          @click="navigateToViewInbox(view.id)"
-                        >
-                          <span class="flex-1 truncate" :title="view.name">{{ view.name }}</span>
-                          <SidebarCountBadge
-                            :count="viewSidebarCount(view.id)"
-                            :ariaLabel="
-                              t('conversation.sidebarCounts.view', viewSidebarCount(view.id))
-                            "
-                          />
-                        </SidebarMenuButton>
-                      </SidebarMenuSubItem>
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </SidebarMenuItem>
-              </Collapsible>
             </SidebarMenu>
           </SidebarGroup>
         </SidebarContent>

@@ -14,7 +14,8 @@ SELECT id, created_at, updated_at, name, filters, visibility, user_id, team_id
 FROM views
 WHERE visibility = 'all'
    OR (visibility = 'team' AND team_id = ANY($1))
-ORDER BY name ASC;
+-- KD: keep the order views were created in, like Zendesk's fixed view list
+ORDER BY id ASC;
 
 -- name: get-all-shared-views
 SELECT id, created_at, updated_at, name, filters, visibility, user_id, team_id

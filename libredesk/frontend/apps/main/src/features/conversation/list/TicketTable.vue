@@ -54,7 +54,7 @@
             </th>
             <th class="w-28 border-b border-border py-2 pr-3">{{ t('globals.terms.status', 1) }}</th>
             <th class="w-20 border-b border-border py-2 pr-3">ID</th>
-            <th class="border-b border-border py-2 pr-3">{{ t('globals.terms.subject', 1) }}</th>
+            <th class="min-w-[16rem] border-b border-border py-2 pr-3">{{ t('globals.terms.subject', 1) }}</th>
             <th class="w-44 border-b border-border py-2 pr-3">Requester</th>
             <SortHeader label="Requested" :fields="['started_last', 'started_first']" class="w-32" />
             <SortHeader label="Priority" :fields="['priority_first']" class="w-24" />
@@ -162,6 +162,8 @@ import { formatFullTimestamp } from '@shared-ui/utils/datetime.js'
 import { useConversationStore } from '@/stores/conversation'
 import { useUsersStore } from '@/stores/users'
 import { useTeamStore } from '@/stores/team'
+import { useSharedViewStore } from '@/stores/sharedView'
+import { useViewStore } from '@/stores/view'
 import { useBulkActionPermissions } from '@/composables/useBulkActionPermissions'
 import EmptyList from '@/features/conversation/list/ConversationEmptyList.vue'
 import ConversationBulkActionToolbar from '@/features/conversation/list/ConversationBulkActionToolbar.vue'
@@ -169,6 +171,8 @@ import ConversationBulkActionToolbar from '@/features/conversation/list/Conversa
 const store = useConversationStore()
 const usersStore = useUsersStore()
 const teamStore = useTeamStore()
+const sharedViewStore = useSharedViewStore()
+const viewStore = useViewStore()
 const { canBulkAct } = useBulkActionPermissions()
 const route = useRoute()
 const router = useRouter()
@@ -182,6 +186,11 @@ watch(
 )
 
 const title = computed(() => {
+  if (route.params.viewID) {
+    const all = [...sharedViewStore.sharedViewList, ...viewStore.views]
+    const view = all.find((v) => String(v.id) === String(route.params.viewID))
+    if (view) return view.name
+  }
   const typeKey = route.meta?.typeKey?.(route)
   if (typeKey) return t(typeKey)
   const key = route.meta?.titleKey
@@ -200,8 +209,8 @@ function toggleAll () {
   allSelected.value ? store.clearSelection() : store.selectAll()
 }
 
-// Zendesk groups shared views by assignee; "My inbox" is all yours anyway
-const grouped = computed(() => route.params.type !== 'assigned')
+// Zendesk groups shared lists by assignee; skip it when everything has one owner
+const grouped = computed(() => new Set(rows.value.map(assigneeLabel)).size > 1)
 const groups = computed(() => {
   if (!grouped.value) return [{ key: 'all', rows: rows.value }]
   const map = new Map()

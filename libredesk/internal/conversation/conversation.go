@@ -762,6 +762,7 @@ func (c *Manager) InsertMentions(conversationID, messageID, mentionedByUserID in
 }
 
 func (c *Manager) GetViewConversationsList(viewingUserID, userID int, teamIDs []int, listType []string, order, orderBy, filters string, page, pageSize int) ([]models.ConversationListItem, error) {
+	filters = expandViewPlaceholders(filters, viewingUserID)
 	return c.GetConversations(viewingUserID, userID, teamIDs, listType, order, orderBy, filters, page, pageSize)
 }
 

@@ -8,6 +8,40 @@ INSERT INTO conversation_statuses (name, category) VALUES
 ON CONFLICT (name) DO NOTHING;
 INSERT INTO conversation_priorities (name) VALUES ('Urgent') ON CONFLICT (name) DO NOTHING;
 
+-- Zendesk's standard views, shared with all agents ("@me" = the agent viewing)
+DELETE FROM views WHERE visibility = 'all' AND name IN (
+  'Your unsolved tickets', 'Unassigned tickets', 'All unsolved tickets',
+  'Pending tickets', 'On-hold tickets', 'Recently solved tickets', 'All tickets');
+WITH s AS (
+  SELECT
+    (SELECT json_agg(id::text ORDER BY id)::text FROM conversation_statuses
+      WHERE name IN ('Open', 'Pending', 'On-hold', 'Snoozed')) AS unsolved,
+    (SELECT json_agg(id::text ORDER BY id)::text FROM conversation_statuses
+      WHERE name IN ('Resolved', 'Closed')) AS solved,
+    (SELECT id::text FROM conversation_statuses WHERE name = 'Pending') AS pending,
+    (SELECT id::text FROM conversation_statuses WHERE name = 'On-hold') AS onhold
+)
+INSERT INTO views (name, visibility, filters)
+SELECT v.name, 'all', v.filters::jsonb FROM s, LATERAL (VALUES
+  (1, 'Your unsolved tickets', json_build_array(
+     json_build_object('model','conversations','field','assigned_user_id','operator','equals','value','@me'),
+     json_build_object('model','conversations','field','status_id','operator','in','value',s.unsolved))::text),
+  (2, 'Unassigned tickets', json_build_array(
+     json_build_object('model','conversations','field','assigned_user_id','operator','not set','value',''),
+     json_build_object('model','conversations','field','status_id','operator','in','value',s.unsolved))::text),
+  (3, 'All unsolved tickets', json_build_array(
+     json_build_object('model','conversations','field','status_id','operator','in','value',s.unsolved))::text),
+  (4, 'Pending tickets', json_build_array(
+     json_build_object('model','conversations','field','status_id','operator','equals','value',s.pending))::text),
+  (5, 'On-hold tickets', json_build_array(
+     json_build_object('model','conversations','field','status_id','operator','equals','value',s.onhold))::text),
+  (6, 'Recently solved tickets', json_build_array(
+     json_build_object('model','conversations','field','status_id','operator','in','value',s.solved))::text),
+  (7, 'All tickets', json_build_array(
+     json_build_object('model','conversations','field','status_id','operator','set','value',''))::text)
+) AS v(ord, name, filters)
+ORDER BY v.ord;
+
 -- Remove previous sample data (marked with the kd_sample flag)
 DELETE FROM conversations WHERE meta->>'kd_sample' = 'true';
 DELETE FROM users WHERE custom_attributes->>'kd_sample' = 'true';
@@ -119,6 +153,11 @@ BEGIN
       updated_at = last_at
     WHERE id = conv_id;
   END LOOP;
+
+  -- Give the logged-in admin ("System") a few tickets so "Your unsolved tickets" isn't empty
+  UPDATE conversations SET assigned_user_id = (SELECT id FROM users WHERE email = 'System' AND type = 'agent')
+  WHERE meta->>'kd_sample' = 'true'
+    AND subject IN ('Warranty status - batch of PIRs', 'Order query - missing PSU', 'Wireless sounder losing signal');
 END $$;
 
 COMMIT;

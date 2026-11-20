@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAppSettingsStore } from '@main/stores/appSettings'
+import api from '@main/api'
 import { getI18n } from '@main/i18n'
 import { abortRouteScope } from '@main/api'
 
@@ -711,6 +712,22 @@ router.onError((error, to) => {
 
 router.afterEach((to, from, failure) => {
   if (!failure) sessionStorage.removeItem(reloadKey)
+})
+
+// KD: like Zendesk, land agents on the first shared view ("Your unsolved
+// tickets") instead of Libredesk's "My inbox".
+let kdLandingViewID
+router.beforeEach(async (to) => {
+  if (to.name !== 'inbox' || to.params.type !== 'assigned') return
+  if (kdLandingViewID === undefined) {
+    try {
+      const res = await api.getSharedViews()
+      kdLandingViewID = res?.data?.data?.[0]?.id ?? null
+    } catch {
+      kdLandingViewID = null // no shared views or no access: keep "My inbox"
+    }
+  }
+  if (kdLandingViewID) return { name: 'view-inbox', params: { viewID: kdLandingViewID } }
 })
 
 router.beforeEach((to, from, next) => {
