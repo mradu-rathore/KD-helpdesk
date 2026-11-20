@@ -1,0 +1,10 @@
+.git
+local
+!dev/seed.sql
+**/node_modules
+libredesk/frontend/dist
+libredesk/libredesk
+libredesk/static/widget.min.js
+libredesk/uploads
+libredesk/config.toml
+**/.DS_Store

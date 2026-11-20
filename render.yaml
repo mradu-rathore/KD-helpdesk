@@ -1,0 +1,69 @@
+# Render Blueprint for KD Helpdesk (Libredesk).
+# Render dashboard -> New -> Blueprint -> pick this repo. It creates:
+#   kd-helpdesk        web app (Docker, built from deploy/Dockerfile)
+#   kd-helpdesk-db     Postgres 17
+#   kd-helpdesk-redis  Key Value (Redis-compatible)
+# All on free plans. Free Postgres expires after 30 days: upgrade it to a paid
+# plan (or move to another Postgres) before then to keep the data.
+
+services:
+  - type: web
+    name: kd-helpdesk
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: LIBREDESK_DB__HOST
+        fromDatabase:
+          name: kd-helpdesk-db
+          property: host
+      - key: LIBREDESK_DB__PORT
+        fromDatabase:
+          name: kd-helpdesk-db
+          property: port
+      - key: LIBREDESK_DB__USER
+        fromDatabase:
+          name: kd-helpdesk-db
+          property: user
+      - key: LIBREDESK_DB__PASSWORD
+        fromDatabase:
+          name: kd-helpdesk-db
+          property: password
+      - key: LIBREDESK_DB__DATABASE
+        fromDatabase:
+          name: kd-helpdesk-db
+          property: database
+      - key: LIBREDESK_REDIS__URL
+        fromService:
+          type: keyvalue
+          name: kd-helpdesk-redis
+          property: connectionString
+      # Zendesk-style views + fictional KD sample tickets, loaded on first boot
+      - key: KD_LOAD_SAMPLE_DATA
+        value: "true"
+      # Set these two yourself when Render asks (they are never stored in git):
+      # 32 characters, e.g. the output of `openssl rand -hex 16`
+      - key: LIBREDESK_APP__ENCRYPTION_KEY
+        sync: false
+      # Password for the "System" admin login, created on first boot.
+      # 10+ chars with upper, lower, number and special character.
+      - key: LIBREDESK_SYSTEM_USER_PASSWORD
+        sync: false
+
+  - type: keyvalue
+    name: kd-helpdesk-redis
+    plan: free
+    region: frankfurt
+    ipAllowList: [] # reachable only from Render services, not the internet
+
+databases:
+  - name: kd-helpdesk-db
+    plan: free
+    region: frankfurt
+    databaseName: libredesk
+    user: libredesk
+    postgresMajorVersion: "17"
+    ipAllowList: [] # reachable only from Render services, not the internet
