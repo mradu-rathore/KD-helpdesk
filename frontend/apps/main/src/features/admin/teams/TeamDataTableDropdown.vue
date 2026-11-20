@@ -1,0 +1,106 @@
+<template>
+  <DropdownMenu>
+    <DataTableActionTrigger />
+    <DropdownMenuContent>
+      <DropdownMenuItem @click="editTeam(props.team.id)">
+        <Pencil class="mr-2 h-4 w-4" />
+        {{ t('globals.messages.edit') }}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        @click="() => (alertOpen = true)"
+        class="text-destructive focus:text-destructive"
+      >
+        <Trash class="mr-2 h-4 w-4" />
+        {{ t('globals.messages.delete') }}
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+
+  <AlertDialog :open="alertOpen" @update:open="alertOpen = $event">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle
+          >{{ t('globals.messages.delete') }} {{ t('globals.terms.team', 1) }}</AlertDialogTitle
+        >
+        <AlertDialogDescription>
+          {{ t('confirm.deleteTeam') }}
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>{{ t('globals.messages.cancel') }}</AlertDialogCancel>
+        <AlertDialogAction variant="destructive" @click="handleDelete">{{
+          t('globals.messages.delete')
+        }}</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+</template>
+
+<script setup>
+import DataTableActionTrigger from '@main/components/datatable/DataTableActionTrigger.vue'
+import { ref } from 'vue'
+import { Pencil, Trash } from 'lucide-vue-next'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator
+} from '@shared-ui/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@shared-ui/components/ui/alert-dialog'
+import { useRouter } from 'vue-router'
+import { useEmitter } from '@/composables/useEmitter'
+import { EMITTER_EVENTS } from '@/constants/emitterEvents.js'
+import { handleHTTPError } from '@shared-ui/utils/http.js'
+import api from '@/api'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
+const alertOpen = ref(false)
+const router = useRouter()
+const emit = useEmitter()
+
+const props = defineProps({
+  team: {
+    type: Object,
+    required: true,
+    default: () => ({
+      id: ''
+    })
+  }
+})
+
+function editTeam(id) {
+  router.push({ path: `/admin/teams/teams/${id}/edit` })
+}
+
+async function handleDelete() {
+  try {
+    await api.deleteTeam(props.team.id)
+    alertOpen.value = false
+    emitRefreshTeamList()
+  } catch (error) {
+    emit.emit(EMITTER_EVENTS.SHOW_TOAST, {
+      title: 'Error',
+      variant: 'destructive',
+      description: handleHTTPError(error).message
+    })
+  }
+}
+
+const emitRefreshTeamList = () => {
+  emit.emit(EMITTER_EVENTS.REFRESH_LIST, {
+    model: 'team'
+  })
+}
+</script>

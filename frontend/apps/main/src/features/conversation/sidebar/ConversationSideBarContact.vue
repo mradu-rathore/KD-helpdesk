@@ -1,0 +1,227 @@
+<template>
+  <div class="min-w-0 space-y-2 text-sm">
+    <div class="flex justify-between items-start">
+      <div class="relative shrink-0">
+        <Avatar class="size-14">
+          <AvatarImage :src="conversation?.contact?.avatar_url || ''" />
+          <AvatarFallback>
+            {{ conversation?.contact?.first_name?.toUpperCase().substring(0, 2) }}
+          </AvatarFallback>
+        </Avatar>
+        <StatusDot
+          v-if="isLivechat"
+          :status="contactStatus"
+          size="lg"
+          class="absolute -bottom-[3px] -right-[3px]"
+        />
+      </div>
+      <div class="flex items-center gap-1">
+        <slot name="actions" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          class="h-11 w-11 text-muted-foreground hover:text-foreground focus-visible:text-foreground lg:h-7 lg:w-7 [&_svg]:size-3.5"
+          :aria-label="t('globals.terms.collapse')"
+          @click="emitter.emit(EMITTER_EVENTS.CONVERSATION_SIDEBAR_TOGGLE)"
+        >
+          <ViewVerticalIcon aria-hidden="true" />
+        </Button>
+      </div>
+    </div>
+
+    <div class="min-h-6 flex items-center gap-2">
+      <router-link
+        v-if="userStore.can('contacts:read') && conversation?.contact_id"
+        :to="{ name: 'contact-detail', params: { id: conversation.contact_id } }"
+        class="flex min-w-0 items-center gap-2 hover:underline cursor-pointer"
+      >
+        <span class="min-w-0 font-medium [overflow-wrap:anywhere]">
+          {{ conversation?.contact?.first_name + ' ' + conversation?.contact?.last_name }}
+        </span>
+        <ExternalLink size="16" class="text-muted-foreground flex-shrink-0" />
+      </router-link>
+      <span v-else class="min-w-0 font-medium [overflow-wrap:anywhere]">
+        {{ conversation?.contact?.first_name + ' ' + conversation?.contact?.last_name }}
+      </span>
+    </div>
+    <div class="flex gap-2 items-center">
+      <Mail size="16" class="text-muted-foreground flex-shrink-0" />
+      <Tooltip v-if="isLivechat">
+        <TooltipTrigger as-child>
+          <ShieldCheck v-if="isVerified" size="14" class="flex-shrink-0 text-success" />
+          <ShieldQuestion v-else size="14" class="flex-shrink-0 text-warning-600" />
+        </TooltipTrigger>
+        <TooltipContent>{{
+          isVerified ? t('contact.identityVerified') : t('contact.identityNotVerified')
+        }}</TooltipContent>
+      </Tooltip>
+      <template v-if="conversation?.contact?.email">
+        <span class="sidebar-value min-w-0 truncate" :title="conversation.contact.email">
+          {{ conversation.contact.email }}
+        </span>
+        <CopyButton
+          :text="conversation.contact.email"
+          class="h-6 w-6 shrink-0 [&_svg]:h-3.5 [&_svg]:w-3.5"
+        />
+      </template>
+      <span v-else class="sidebar-label">
+        {{ t('conversation.sidebar.notAvailable') }}
+      </span>
+    </div>
+    <div class="flex gap-2 items-center">
+      <Phone size="16" class="text-muted-foreground flex-shrink-0" />
+      <span class="sidebar-value min-w-0 [overflow-wrap:anywhere]">
+        {{ phoneNumber }}
+      </span>
+    </div>
+    <div class="flex gap-2 items-center" v-if="conversation?.contact?.external_user_id">
+      <IdCard size="16" class="text-muted-foreground flex-shrink-0" />
+      <span class="sidebar-value min-w-0 [overflow-wrap:anywhere]">
+        {{ conversation.contact.external_user_id }}
+      </span>
+    </div>
+    <div
+      v-for="identity in conversation?.contact?.channel_identities"
+      :key="identity.channel + identity.identifier"
+      class="flex gap-2 items-center"
+    >
+      <WhatsAppIcon
+        v-if="identity.channel === 'whatsapp'"
+        class="size-4 text-muted-foreground flex-shrink-0"
+      />
+      <IdCard v-else size="16" class="text-muted-foreground flex-shrink-0" />
+      <span class="sidebar-value break-all">
+        {{ identity.channel === 'whatsapp' ? '+' + identity.identifier : identity.identifier }}
+      </span>
+    </div>
+
+    <!-- Livechat visitor info -->
+    <template v-if="isLivechat">
+      <div v-if="conversation?.contact?.country" class="flex gap-2 items-center">
+        <Globe size="16" class="text-muted-foreground flex-shrink-0" />
+        <span class="sidebar-value">{{ countryName }}</span>
+      </div>
+      <div v-if="conversation?.meta?.ip" class="flex gap-2 items-center">
+        <Monitor size="16" class="text-muted-foreground flex-shrink-0" />
+        <span class="sidebar-value break-all">{{ conversation.meta.ip }}</span>
+      </div>
+      <div v-if="conversation?.meta?.user_agent" class="flex gap-2 items-center">
+        <Smartphone size="16" class="text-muted-foreground flex-shrink-0" />
+        <span class="sidebar-value break-all">{{ parsedUA }}</span>
+      </div>
+    </template>
+
+    <!-- Context Links -->
+    <template v-if="contextLinks.length > 0">
+      <div
+        v-for="app in contextLinks"
+        :key="app.id"
+        class="flex gap-2 items-center cursor-pointer group"
+        @click="openContextLink(app)"
+      >
+        <ExternalLink size="16" class="text-muted-foreground flex-shrink-0" />
+        <span
+          class="sidebar-value group-hover:underline"
+          :class="{ 'text-muted-foreground': loadingAppId === app.id }"
+        >
+          {{ app.name }}
+        </span>
+      </div>
+    </template>
+  </div>
+</template>
+
+<script setup>
+import { computed, ref, onMounted } from 'vue'
+import { ViewVerticalIcon } from '@radix-icons/vue'
+import { Button } from '@shared-ui/components/ui/button'
+import { Avatar, AvatarFallback, AvatarImage } from '@shared-ui/components/ui/avatar'
+import StatusDot from '@shared-ui/components/StatusDot.vue'
+import CopyButton from '@/components/button/CopyButton.vue'
+import {
+  Mail,
+  Phone,
+  ExternalLink,
+  IdCard,
+  Globe,
+  Monitor,
+  Smartphone,
+  ShieldCheck,
+  ShieldQuestion
+} from 'lucide-vue-next'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared-ui/components/ui/tooltip'
+import WhatsAppIcon from '@main/components/icons/WhatsAppIcon.vue'
+import countries from '@shared-ui/constants/countries.js'
+import { useEmitter } from '@/composables/useEmitter'
+import { EMITTER_EVENTS } from '@/constants/emitterEvents.js'
+import { useConversationStore } from '@/stores/conversation'
+import { useUserStore } from '@/stores/user'
+import { useI18n } from 'vue-i18n'
+import api from '@/api'
+const conversationStore = useConversationStore()
+const emitter = useEmitter()
+const conversation = computed(() => conversationStore.current)
+const { t } = useI18n()
+const userStore = useUserStore()
+
+const phoneNumber = computed(() => {
+  const countryCodeValue = conversation.value?.contact?.phone_number_country_code || ''
+  const number = conversation.value?.contact?.phone_number || t('conversation.sidebar.notAvailable')
+  if (!countryCodeValue) return number
+
+  const country = countries.find((c) => c.iso_2 === countryCodeValue)
+  if (!country) return number
+  return `${country.calling_code} ${number}`
+})
+
+const countryName = computed(() => {
+  const code = conversation.value?.contact?.country
+  if (!code) return ''
+  const c = countries.find((c) => c.iso_2 === code)
+  return c ? c.name : code
+})
+
+const isLivechat = computed(() => conversation.value?.inbox_channel === 'livechat')
+const contactStatus = computed(() => conversation.value?.contact?.availability_status)
+const isVerified = computed(
+  () => isLivechat.value && conversation.value?.contact?.type !== 'visitor'
+)
+
+const parsedUA = computed(() => {
+  const ua = conversation.value?.meta?.user_agent
+  if (!ua) return ''
+  const browser = ua.match(/(Chrome|Firefox|Safari|Edge|Opera|MSIE|Trident)[/\s](\d+)/i)
+  const os = ua.match(/(Windows|Mac OS X|Linux|Android|iOS|iPhone|iPad)[\s/]?([0-9._]*)/i)
+  const parts = []
+  if (browser) parts.push(browser[1] + ' ' + browser[2])
+  if (os) parts.push(os[1].replace('_', ' '))
+  return parts.length > 0 ? parts.join(' / ') : ua.substring(0, 60)
+})
+
+const contextLinks = ref([])
+const loadingAppId = ref(null)
+
+onMounted(async () => {
+  try {
+    const resp = await api.getActiveContextLinks()
+    contextLinks.value = resp.data.data || []
+  } catch {
+    return
+  }
+})
+
+const openContextLink = async (app) => {
+  const uuid = conversation.value?.uuid
+  if (!uuid) return
+  try {
+    loadingAppId.value = app.id
+    const resp = await api.getContextLinkURL(app.id, uuid)
+    window.open(resp.data.data, '_blank', 'noopener,noreferrer')
+  } catch {
+    return
+  } finally {
+    loadingAppId.value = null
+  }
+}
+</script>

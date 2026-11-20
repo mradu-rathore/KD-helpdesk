@@ -1,0 +1,1205 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"mime"
+	"strconv"
+	"strings"
+	"time"
+
+	amodels "github.com/abhinavxd/libredesk/internal/auth/models"
+	"github.com/abhinavxd/libredesk/internal/automation/models"
+	"github.com/abhinavxd/libredesk/internal/conversation"
+	cmodels "github.com/abhinavxd/libredesk/internal/conversation/models"
+	"github.com/abhinavxd/libredesk/internal/countries"
+	"github.com/abhinavxd/libredesk/internal/envelope"
+	whatsappChannel "github.com/abhinavxd/libredesk/internal/inbox/channel/whatsapp"
+	"github.com/abhinavxd/libredesk/internal/stringutil"
+	umodels "github.com/abhinavxd/libredesk/internal/user/models"
+	vmodels "github.com/abhinavxd/libredesk/internal/view/models"
+	wmodels "github.com/abhinavxd/libredesk/internal/webhook/models"
+	"github.com/valyala/fasthttp"
+	"github.com/volatiletech/null/v9"
+	"github.com/zerodha/fastglue"
+)
+
+type conversationReadReq struct {
+	MessageUUID string `json:"message_uuid"`
+}
+
+type assigneeChangeReq struct {
+	AssigneeID int `json:"assignee_id"`
+}
+
+type teamAssigneeChangeReq struct {
+	AssigneeID int `json:"assignee_id"`
+}
+
+type priorityUpdateReq struct {
+	Priority string `json:"priority"`
+}
+
+type statusUpdateReq struct {
+	Status       string `json:"status"`
+	SnoozedUntil string `json:"snoozed_until,omitempty"`
+}
+
+type tagsUpdateReq struct {
+	Tags   []string `json:"tags"`
+	Action string   `json:"action,omitempty"`
+}
+
+type createConversationRequest struct {
+	InboxID                int               `json:"inbox_id"`
+	AssignedAgentID        int               `json:"agent_id"`
+	AssignedTeamID         int               `json:"team_id"`
+	Email                  string            `json:"contact_email"`
+	CC                     []string          `json:"cc"`
+	BCC                    []string          `json:"bcc"`
+	FirstName              string            `json:"first_name"`
+	LastName               string            `json:"last_name"`
+	ExternalUserID         string            `json:"external_user_id"`
+	ReuseContact           bool              `json:"reuse_contact"`
+	Subject                string            `json:"subject"`
+	Content                string            `json:"content"`
+	SendFrom               string            `json:"send_from"`
+	Attachments            []int             `json:"attachments"`
+	Initiator              string            `json:"initiator"` // "contact" | "agent"
+	SourceID               string            `json:"source_id"` // RFC 5322 Message-ID of the inbound message. Stored on the created contact message so replies thread on it. Contact-initiated only.
+	CustomAttributes       map[string]any    `json:"custom_attributes"`
+	ContactID              int               `json:"contact_id"`
+	PhoneNumber            string            `json:"phone_number"`
+	PhoneNumberCountryCode string            `json:"phone_number_country_code"`
+	WhatsAppTemplateID     int               `json:"whatsapp_template_id"`
+	WhatsAppTemplateParams map[string]string `json:"whatsapp_template_params"`
+}
+
+type whatsAppOpenConversationResponse struct {
+	Exists bool   `json:"exists"`
+	UUID   string `json:"uuid"`
+}
+
+// handleGetAllConversations retrieves all conversations.
+func handleGetAllConversations(r *fastglue.Request) error {
+	var (
+		app     = r.Context.(*App)
+		user    = r.RequestCtx.UserValue("user").(amodels.User)
+		order   = string(r.RequestCtx.QueryArgs().Peek("order"))
+		orderBy = string(r.RequestCtx.QueryArgs().Peek("order_by"))
+		filters = string(r.RequestCtx.QueryArgs().Peek("filters"))
+		total   = 0
+	)
+	page, pageSize := getPagination(r)
+
+	conversations, err := app.conversation.GetAllConversationsList(user.ID, order, orderBy, filters, page, pageSize)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	if len(conversations) > 0 {
+		total = conversations[0].Total
+	}
+
+	return r.SendEnvelope(envelope.PageResults{
+		Results:    conversations,
+		Total:      total,
+		PerPage:    pageSize,
+		TotalPages: (total + pageSize - 1) / pageSize,
+		Page:       page,
+	})
+}
+
+// handleGetAssignedConversations retrieves conversations assigned to the current user.
+func handleGetAssignedConversations(r *fastglue.Request) error {
+	var (
+		app     = r.Context.(*App)
+		user    = r.RequestCtx.UserValue("user").(amodels.User)
+		order   = string(r.RequestCtx.QueryArgs().Peek("order"))
+		orderBy = string(r.RequestCtx.QueryArgs().Peek("order_by"))
+		filters = string(r.RequestCtx.QueryArgs().Peek("filters"))
+		total   = 0
+	)
+	page, pageSize := getPagination(r)
+	conversations, err := app.conversation.GetAssignedConversationsList(user.ID, user.ID, order, orderBy, filters, page, pageSize)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if len(conversations) > 0 {
+		total = conversations[0].Total
+	}
+
+	return r.SendEnvelope(envelope.PageResults{
+		Results:    conversations,
+		Total:      total,
+		PerPage:    pageSize,
+		TotalPages: (total + pageSize - 1) / pageSize,
+		Page:       page,
+	})
+}
+
+// handleGetUnassignedConversations retrieves unassigned conversations.
+func handleGetUnassignedConversations(r *fastglue.Request) error {
+	var (
+		app     = r.Context.(*App)
+		user    = r.RequestCtx.UserValue("user").(amodels.User)
+		order   = string(r.RequestCtx.QueryArgs().Peek("order"))
+		orderBy = string(r.RequestCtx.QueryArgs().Peek("order_by"))
+		filters = string(r.RequestCtx.QueryArgs().Peek("filters"))
+		total   = 0
+	)
+	page, pageSize := getPagination(r)
+
+	conversations, err := app.conversation.GetUnassignedConversationsList(user.ID, order, orderBy, filters, page, pageSize)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if len(conversations) > 0 {
+		total = conversations[0].Total
+	}
+
+	return r.SendEnvelope(envelope.PageResults{
+		Results:    conversations,
+		Total:      total,
+		PerPage:    pageSize,
+		TotalPages: (total + pageSize - 1) / pageSize,
+		Page:       page,
+	})
+}
+
+// handleGetMentionedConversations retrieves conversations where the current user is mentioned.
+func handleGetMentionedConversations(r *fastglue.Request) error {
+	var (
+		app     = r.Context.(*App)
+		user    = r.RequestCtx.UserValue("user").(amodels.User)
+		order   = string(r.RequestCtx.QueryArgs().Peek("order"))
+		orderBy = string(r.RequestCtx.QueryArgs().Peek("order_by"))
+		filters = string(r.RequestCtx.QueryArgs().Peek("filters"))
+		total   = 0
+	)
+	page, pageSize := getPagination(r)
+
+	conversations, err := app.conversation.GetMentionedConversationsList(user.ID, order, orderBy, filters, page, pageSize)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if len(conversations) > 0 {
+		total = conversations[0].Total
+	}
+
+	return r.SendEnvelope(envelope.PageResults{
+		Results:    conversations,
+		Total:      total,
+		PerPage:    pageSize,
+		TotalPages: (total + pageSize - 1) / pageSize,
+		Page:       page,
+	})
+}
+
+// handleGetViewConversations retrieves conversations for a view.
+func handleGetViewConversations(r *fastglue.Request) error {
+	var (
+		app       = r.Context.(*App)
+		auser     = r.RequestCtx.UserValue("user").(amodels.User)
+		viewID, _ = strconv.Atoi(r.RequestCtx.UserValue("id").(string))
+		order     = string(r.RequestCtx.QueryArgs().Peek("order"))
+		orderBy   = string(r.RequestCtx.QueryArgs().Peek("order_by"))
+		total     = 0
+	)
+	page, pageSize := getPagination(r)
+	if viewID < 1 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.InputError)
+	}
+
+	// Check if user has access to the view.
+	view, err := app.view.Get(viewID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	if !conversation.UserCanAccessView(view, auser.ID, user.Teams.IDs()) {
+		return r.SendErrorEnvelope(fasthttp.StatusForbidden, app.i18n.T("conversation.viewPermissionDenied"), nil, envelope.PermissionError)
+	}
+
+	lists := conversation.ListsForUserPermissions(user.Permissions)
+	// No lists found, user doesn't have access to any conversations.
+	if len(lists) == 0 {
+		return r.SendErrorEnvelope(fasthttp.StatusForbidden, app.i18n.T("status.deniedPermission"), nil, envelope.PermissionError)
+	}
+
+	conversations, err := app.conversation.GetViewConversationsList(user.ID, user.ID, user.Teams.IDs(), lists, order, orderBy, string(view.Filters), page, pageSize)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if len(conversations) > 0 {
+		total = conversations[0].Total
+	}
+
+	return r.SendEnvelope(envelope.PageResults{
+		Results:    conversations,
+		Total:      total,
+		PerPage:    pageSize,
+		TotalPages: (total + pageSize - 1) / pageSize,
+		Page:       page,
+	})
+}
+
+// handleGetSidebarCounts returns open-conversation counts for inbox sidebar badges.
+func handleGetSidebarCounts(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+	)
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	personalViews, err := app.view.GetUsersViews(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	sharedViews, err := app.view.GetSharedViewsForUser(user.Teams.IDs())
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	allViews := make([]vmodels.View, 0, len(personalViews)+len(sharedViews))
+	allViews = append(allViews, personalViews...)
+	allViews = append(allViews, sharedViews...)
+
+	counts, err := app.conversation.GetSidebarCounts(user.ID, user.Permissions, user.Teams.IDs(), allViews)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	return r.SendEnvelope(counts)
+}
+
+// handleGetViewCount returns the sidebar badge count for one view.
+func handleGetViewCount(r *fastglue.Request) error {
+	var (
+		app       = r.Context.(*App)
+		auser     = r.RequestCtx.UserValue("user").(amodels.User)
+		viewID, _ = strconv.Atoi(r.RequestCtx.UserValue("id").(string))
+	)
+	if viewID < 1 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.InputError)
+	}
+
+	view, err := app.view.Get(viewID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	if !conversation.UserCanAccessView(view, auser.ID, user.Teams.IDs()) {
+		return r.SendErrorEnvelope(fasthttp.StatusForbidden, app.i18n.T("conversation.viewPermissionDenied"), nil, envelope.PermissionError)
+	}
+
+	count, err := app.conversation.GetViewCount(user.ID, user.Permissions, user.Teams.IDs(), view)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	return r.SendEnvelope(map[string]int{"count": count})
+}
+
+// handleGetTeamUnassignedConversations returns conversations assigned to a team but not to any user.
+func handleGetTeamUnassignedConversations(r *fastglue.Request) error {
+	var (
+		app       = r.Context.(*App)
+		auser     = r.RequestCtx.UserValue("user").(amodels.User)
+		teamIDStr = r.RequestCtx.UserValue("id").(string)
+		order     = string(r.RequestCtx.QueryArgs().Peek("order"))
+		orderBy   = string(r.RequestCtx.QueryArgs().Peek("order_by"))
+		filters   = string(r.RequestCtx.QueryArgs().Peek("filters"))
+		total     = 0
+	)
+	page, pageSize := getPagination(r)
+	teamID, _ := strconv.Atoi(teamIDStr)
+	if teamID < 1 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.InputError)
+	}
+
+	// Check if user belongs to the team.
+	exists, err := app.team.UserBelongsToTeam(teamID, auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	if !exists {
+		return sendErrorEnvelope(r, envelope.NewError(envelope.PermissionError, app.i18n.T("conversation.notMemberOfTeam"), nil))
+	}
+
+	conversations, err := app.conversation.GetTeamUnassignedConversationsList(auser.ID, teamID, order, orderBy, filters, page, pageSize)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if len(conversations) > 0 {
+		total = conversations[0].Total
+	}
+
+	return r.SendEnvelope(envelope.PageResults{
+		Results:    conversations,
+		Total:      total,
+		PerPage:    pageSize,
+		TotalPages: (total + pageSize - 1) / pageSize,
+		Page:       page,
+	})
+}
+
+// handleGetConversation retrieves a single conversation by it's UUID.
+func handleGetConversation(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+	)
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	conv, err := enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	prev, err := app.conversation.GetContactPreviousConversations(conv.ContactID, 10, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	// The current conversation stays in the list; the sidebar highlights it, like the conversation list does.
+	conv.PreviousConversations = prev
+	return r.SendEnvelope(conv)
+}
+
+// handleDownloadConversationTranscript sends the conversation transcript as a text file download.
+func handleDownloadConversationTranscript(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+	)
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	conversation, err := enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	private := false
+	messages, err := app.conversation.GetAllConversationMessages(uuid, &private, []string{cmodels.MessageIncoming, cmodels.MessageOutgoing}, 0)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	transcript := app.conversation.BuildTranscript(*conversation, messages, time.Now())
+	safeRef := stringutil.SanitizeFilename(conversation.ReferenceNumber)
+	filename := fmt.Sprintf("transcript-%s.txt", safeRef)
+	r.RequestCtx.Response.Header.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	r.RequestCtx.Response.Header.Set("X-Content-Type-Options", "nosniff")
+	r.RequestCtx.SetContentType("text/plain; charset=utf-8")
+	r.RequestCtx.SetBody(transcript)
+	return nil
+}
+
+// handleGetContactPageVisits returns the recent page visits for the contact of a conversation.
+func handleGetContactPageVisits(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+	)
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	conv, err := enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	pages := getPageVisitsFromRedis(app, conv.ContactID)
+	return r.SendEnvelope(pages)
+}
+
+// handleUpdateConversationAssigneeLastSeen updates the current user's last seen timestamp for a conversation.
+func handleUpdateConversationAssigneeLastSeen(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+		req   = conversationReadReq{}
+	)
+	if len(r.RequestCtx.PostBody()) > 0 {
+		if err := r.Decode(&req, "json"); err != nil {
+			return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+		}
+	}
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	conv, err := enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	var (
+		readInboxID  int
+		readSourceID string
+	)
+	if conv.InboxChannel == whatsappChannel.ChannelWhatsApp {
+		readInboxID, readSourceID, err = app.conversation.WhatsAppReadReceiptTarget(uuid, auser.ID, req.MessageUUID)
+		if err != nil {
+			app.lo.Error("error resolving whatsapp read receipt target", "conversation_uuid", uuid, "error", err)
+		}
+	}
+
+	read, err := app.conversation.UpdateUserLastSeen(uuid, auser.ID, req.MessageUUID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	if readSourceID != "" {
+		go markWhatsAppMessageRead(app, readInboxID, readSourceID)
+	}
+	state := map[string]any{"conversation_uuid": uuid, "last_seen_at": read.LastSeenAt, "read_version": read.ReadVersion}
+	app.conversation.BroadcastConversationRead(auser.ID, state)
+	return r.SendEnvelope(state)
+}
+
+// handleMarkConversationAsUnread marks a conversation as unread for the current user.
+func handleMarkConversationAsUnread(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+	)
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	_, err = enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	unread, err := app.conversation.MarkAsUnread(uuid, auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	state := map[string]any{"conversation_uuid": uuid, "last_seen_at": unread.LastSeenAt, "read_version": unread.ReadVersion, "is_unread": true}
+	app.conversation.BroadcastConversationRead(auser.ID, state)
+	return r.SendEnvelope(state)
+}
+
+// handleGetConversationParticipants retrieves participants of a conversation.
+func handleGetConversationParticipants(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+	)
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	_, err = enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	p, err := app.conversation.GetConversationParticipants(uuid)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	return r.SendEnvelope(p)
+}
+
+// handleUpdateUserAssignee updates the user assigned to a conversation.
+func handleUpdateUserAssignee(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+		req   = assigneeChangeReq{}
+	)
+
+	if err := r.Decode(&req, "json"); err != nil {
+		app.lo.Debug("error decoding assignee change request", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+	}
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	conversation, err := enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	// Already assigned?
+	if conversation.AssignedUserID.Int == req.AssigneeID {
+		return r.SendEnvelope(true)
+	}
+
+	if err := app.conversation.UpdateConversationUserAssignee(uuid, req.AssigneeID, user); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	return r.SendEnvelope(true)
+}
+
+// handleUpdateTeamAssignee updates the team assigned to a conversation.
+func handleUpdateTeamAssignee(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+		req   = teamAssigneeChangeReq{}
+	)
+
+	if err := r.Decode(&req, "json"); err != nil {
+		app.lo.Error("error decoding team assignee change request", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+	}
+
+	assigneeID := req.AssigneeID
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	_, err = app.team.Get(assigneeID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	conversation, err := enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	// Already assigned?
+	if conversation.AssignedTeamID.Int == assigneeID {
+		return r.SendEnvelope(true)
+	}
+	if err := app.conversation.UpdateConversationTeamAssignee(uuid, assigneeID, user); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	return r.SendEnvelope(true)
+}
+
+// handleUpdateConversationPriority updates the priority of a conversation.
+func handleUpdateConversationPriority(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+		req   = priorityUpdateReq{}
+	)
+
+	if err := r.Decode(&req, "json"); err != nil {
+		app.lo.Error("error decoding priority update request", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+	}
+
+	priority := req.Priority
+	if priority == "" {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.Ts("globals.messages.empty", "name", "`priority`"), nil, envelope.InputError)
+	}
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	_, err = enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if err := app.conversation.UpdateConversationPriority(uuid, 0 /**priority_id**/, priority, user); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	return r.SendEnvelope(true)
+}
+
+// handleUpdateConversationStatus updates the status of a conversation.
+func handleUpdateConversationStatus(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+		req   = statusUpdateReq{}
+	)
+
+	if err := r.Decode(&req, "json"); err != nil {
+		app.lo.Error("error decoding status update request", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+	}
+
+	status := req.Status
+	snoozedUntil := req.SnoozedUntil
+
+	// Validate inputs
+	if status == "" {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.Ts("globals.messages.empty", "name", "`status`"), nil, envelope.InputError)
+	}
+	if snoozedUntil == "" && status == cmodels.StatusSnoozed {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.Ts("globals.messages.empty", "name", "`snoozed_until`"), nil, envelope.InputError)
+	}
+	if status == cmodels.StatusSnoozed {
+		_, err := time.ParseDuration(snoozedUntil)
+		if err != nil {
+			return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("globals.messages.badRequest"), nil, envelope.InputError)
+		}
+	}
+
+	// Enforce conversation access.
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	conversation, err := enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	// Update conversation status.
+	if err := app.conversation.UpdateConversationStatus(uuid, 0 /**status_id**/, status, snoozedUntil, user); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	markAssignmentNotificationRead(app, conversation, user)
+	return r.SendEnvelope(true)
+}
+
+// handleUpdateConversationtags updates conversation tags.
+func handleUpdateConversationtags(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		req   = tagsUpdateReq{}
+	)
+
+	if err := r.Decode(&req, "json"); err != nil {
+		app.lo.Error("error decoding tags update request", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+	}
+
+	tagNames := req.Tags
+
+	// Default to set tags if action is not provided (backwards compatibility).
+	action := models.ActionSetTags
+	switch req.Action {
+	case models.ActionAddTags, models.ActionRemoveTags, models.ActionSetTags:
+		action = req.Action
+	case "":
+	default:
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+	}
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	_, err = enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	if err := app.conversation.SetConversationTags(uuid, action, tagNames, user); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	return r.SendEnvelope(true)
+}
+
+// handleUpdateConversationCustomAttributes updates custom attributes of a conversation.
+func handleUpdateConversationCustomAttributes(r *fastglue.Request) error {
+	var (
+		app        = r.Context.(*App)
+		attributes = map[string]any{}
+		auser      = r.RequestCtx.UserValue("user").(amodels.User)
+		uuid       = r.RequestCtx.UserValue("uuid").(string)
+	)
+	if err := r.Decode(&attributes, ""); err != nil {
+		app.lo.Error("error unmarshalling custom attributes JSON", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+	}
+
+	// Enforce conversation access.
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	_, err = enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	// Update custom attributes.
+	if err := app.conversation.UpdateConversationCustomAttributes(uuid, attributes); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	return r.SendEnvelope(true)
+}
+
+// handleUpdateContactCustomAttributes updates custom attributes of a contact.
+func handleUpdateContactCustomAttributes(r *fastglue.Request) error {
+	var (
+		app        = r.Context.(*App)
+		attributes = map[string]any{}
+		auser      = r.RequestCtx.UserValue("user").(amodels.User)
+		uuid       = r.RequestCtx.UserValue("uuid").(string)
+	)
+	if err := r.Decode(&attributes, ""); err != nil {
+		app.lo.Error("error unmarshalling custom attributes JSON", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+	}
+
+	// Enforce conversation access.
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	conversation, err := enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if err := app.user.SaveCustomAttributes(conversation.ContactID, attributes, false); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	// Broadcast update.
+	app.conversation.BroadcastContactUpdate(conversation.ContactID, map[string]any{"custom_attributes": attributes})
+	return r.SendEnvelope(true)
+}
+
+// enforceConversationAccess fetches the conversation and checks if the user has access to it.
+func enforceConversationAccess(app *App, uuid string, user umodels.User) (*cmodels.Conversation, error) {
+	conversation, err := app.conversation.GetConversation(0, uuid, "")
+	if err != nil {
+		return nil, err
+	}
+	allowed, err := app.authz.EnforceConversationAccess(user, conversation)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, envelope.NewError(envelope.PermissionError, "Permission denied", nil)
+	}
+	return &conversation, nil
+}
+
+// handleRemoveUserAssignee removes the user assigned to a conversation.
+func handleRemoveUserAssignee(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+	)
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	_, err = enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if err = app.conversation.UnassignConversationUser(uuid, user); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	return r.SendEnvelope(true)
+}
+
+// handleRemoveTeamAssignee removes the team assigned to a conversation.
+func handleRemoveTeamAssignee(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		uuid  = r.RequestCtx.UserValue("uuid").(string)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+	)
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	_, err = enforceConversationAccess(app, uuid, user)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if err = app.conversation.RemoveConversationAssignee(uuid, "team", user); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	return r.SendEnvelope(true)
+}
+
+// handleCreateConversation creates a new conversation and sends a message to it.
+func handleCreateConversation(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+		req   = createConversationRequest{}
+	)
+
+	if err := r.Decode(&req, "json"); err != nil {
+		app.lo.Error("error decoding create conversation request", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
+	}
+
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
+	channel, err := validateCreateConversationRequest(req, app)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	if req.Initiator == umodels.UserTypeContact {
+		canWriteAsContact, err := app.authz.Enforce(user, "messages", "write_as_contact")
+		if err != nil {
+			app.lo.Error("error checking permission", "error", err)
+			return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+		}
+		if !canWriteAsContact {
+			return sendErrorEnvelope(r, envelope.NewError(envelope.PermissionError, app.i18n.T("status.deniedPermission"), nil))
+		}
+	}
+
+	var (
+		contactID int
+		to        = []string{req.Email}
+	)
+	switch channel {
+	case whatsappChannel.ChannelWhatsApp:
+		if req.ContactID <= 0 {
+			canWriteContacts, err := app.authz.Enforce(user, "contacts", "write")
+			if err != nil {
+				app.lo.Error("error checking permission", "error", err)
+				return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+			}
+			if !canWriteContacts {
+				return sendErrorEnvelope(r, envelope.NewError(envelope.PermissionError, app.i18n.T("status.deniedPermission"), nil))
+			}
+		}
+		contactID, err = resolveWhatsAppContact(app, req)
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+	default:
+		contact := umodels.User{
+			Email:            null.StringFrom(req.Email),
+			FirstName:        req.FirstName,
+			LastName:         req.LastName,
+			ExternalUserID:   null.NewString(req.ExternalUserID, req.ExternalUserID != ""),
+			CustomAttributes: json.RawMessage(`{}`),
+		}
+		canWriteContacts, err := app.authz.Enforce(user, "contacts", "write")
+		if err != nil {
+			app.lo.Error("error checking permission", "error", err)
+			return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+		}
+		policy := umodels.ContactReuse
+		if canWriteContacts && !req.ReuseContact {
+			policy = umodels.ContactSync
+		}
+		if err := app.user.ResolveContact(&contact, policy); err != nil {
+			return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+		}
+		// A contact matched by external ID keeps its stored email as the recipient.
+		if policy == umodels.ContactReuse && contact.Email.String != "" {
+			to = []string{contact.Email.String}
+		}
+		contactID = contact.ID
+	}
+
+	subject, appendRefNum := req.Subject, true
+	if channel == whatsappChannel.ChannelWhatsApp {
+		subject, appendRefNum = "", false
+		// A contact gets one open WhatsApp conversation per inbox. The lock keeps an incoming message from creating one between this check and the create below.
+		defer lockWhatsAppConversation(contactID, req.InboxID)()
+		_, openUUID, lookupErr := app.conversation.GetLatestOpenConversationForContact(contactID, req.InboxID)
+		switch {
+		case lookupErr == nil:
+			accessibleUUID, accessErr := accessibleConversationUUID(app, openUUID, user)
+			if accessErr != nil {
+				return sendErrorEnvelope(r, accessErr)
+			}
+			messageKey := "conversation.whatsapp.error.conversationExistsNoAccess"
+			var data map[string]any
+			if accessibleUUID != "" {
+				messageKey = "conversation.whatsapp.error.conversationExists"
+				data = map[string]any{"conversation_uuid": accessibleUUID}
+			}
+			return sendErrorEnvelope(r, envelope.NewError(envelope.ConflictError, app.i18n.T(messageKey), data))
+		case !errors.Is(lookupErr, sql.ErrNoRows):
+			return sendErrorEnvelope(r, lookupErr)
+		}
+	}
+
+	media, err := getUnassociatedMedia(app, req.Attachments, auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	conversationID, conversationUUID, err := app.conversation.CreateConversation(
+		contactID,
+		req.InboxID,
+		"",         /** last_message **/
+		time.Now(), /** last_message_at **/
+		subject,
+		appendRefNum,
+		nil, /** meta **/
+		req.CustomAttributes,
+		0, /** max_conversations **/
+		0, /** rate_limit_window **/
+	)
+	if err != nil {
+		app.lo.Error("error creating conversation", "error", err)
+		return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+	}
+
+	// Team assignment clears the assigned agent.
+	if req.AssignedTeamID > 0 {
+		app.conversation.UpdateConversationTeamAssignee(conversationUUID, req.AssignedTeamID, user)
+	}
+	if req.AssignedAgentID > 0 {
+		app.conversation.UpdateConversationUserAssignee(conversationUUID, req.AssignedAgentID, user)
+	}
+
+	// WhatsApp is always an agent-initiated template. Email follows the initiator.
+	agentInitiated := true
+	var sendErr error
+	switch {
+	case channel == whatsappChannel.ChannelWhatsApp:
+		meta := map[string]any{"whatsapp_template_id": req.WhatsAppTemplateID}
+		if len(req.WhatsAppTemplateParams) > 0 {
+			meta["whatsapp_template_params"] = req.WhatsAppTemplateParams
+		}
+		_, sendErr = app.conversation.QueueReply(media, req.InboxID, auser.ID, contactID, conversationUUID, "" /** content **/, nil /** to **/, nil /** cc **/, nil /** bcc **/, "" /** sendFrom **/, meta)
+	case req.Initiator == umodels.UserTypeAgent:
+		content := app.conversation.RenderStaffTemplate(conversationUUID, auser.ID, req.Content)
+		_, sendErr = app.conversation.QueueReply(media, req.InboxID, auser.ID, contactID, conversationUUID, content, to, req.CC, req.BCC, req.SendFrom, map[string]any{} /** meta **/)
+	case req.Initiator == umodels.UserTypeContact:
+		agentInitiated = false
+		_, sendErr = app.conversation.CreateContactMessage(media, contactID, conversationUUID, req.Content, cmodels.ContentTypeHTML, true, req.SourceID, auser.ID)
+	default:
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.InputError)
+	}
+	if sendErr != nil {
+		app.lo.Error("error sending first message of new conversation", "conversation_uuid", conversationUUID, "error", sendErr)
+		if err := app.conversation.DeleteConversation(conversationUUID); err != nil {
+			app.lo.Error("error deleting conversation", "error", err)
+		}
+		// Only envelope errors carry a message that is safe to show the agent.
+		if _, ok := sendErr.(envelope.Error); ok {
+			return sendErrorEnvelope(r, sendErr)
+		}
+		return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.errorSendingMessage"), nil))
+	}
+
+	// Contact-initiated conversations get this event from the incoming message hooks.
+	if agentInitiated {
+		if c, err := app.conversation.GetConversation(0, conversationUUID, ""); err == nil {
+			app.webhook.TriggerEvent(wmodels.EventConversationCreated, c)
+		}
+	}
+
+	conversation, _ := app.conversation.GetConversation(conversationID, "", "")
+	return r.SendEnvelope(conversation)
+}
+
+// handleGetWhatsAppOpenConversation returns the open conversation a contact already has in a WhatsApp inbox. UUID is empty when the agent cannot access it.
+func handleGetWhatsAppOpenConversation(r *fastglue.Request) error {
+	var (
+		app          = r.Context.(*App)
+		auser        = r.RequestCtx.UserValue("user").(amodels.User)
+		contactID, _ = strconv.Atoi(r.RequestCtx.UserValue("contact_id").(string))
+		inboxID, _   = strconv.Atoi(string(r.RequestCtx.QueryArgs().Peek("inbox_id")))
+	)
+
+	if contactID <= 0 || inboxID <= 0 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.InputError)
+	}
+
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	resp := whatsAppOpenConversationResponse{}
+	_, uuid, err := app.conversation.GetLatestOpenConversationForContact(contactID, inboxID)
+	switch {
+	case err == nil:
+		resp.Exists = true
+		resp.UUID, err = accessibleConversationUUID(app, uuid, user)
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+	case !errors.Is(err, sql.ErrNoRows):
+		return sendErrorEnvelope(r, err)
+	}
+	return r.SendEnvelope(resp)
+}
+
+func validateCreateConversationRequest(req createConversationRequest, app *App) (string, error) {
+	if req.InboxID <= 0 {
+		return "", envelope.NewError(envelope.InputError, app.i18n.Ts("globals.messages.required", "name", "`inbox_id`"), nil)
+	}
+
+	inbox, err := app.inbox.GetDBRecord(req.InboxID)
+	if err != nil {
+		return "", err
+	}
+	if !inbox.Enabled {
+		return "", envelope.NewError(envelope.InputError, app.i18n.T("globals.messages.disabled"), nil)
+	}
+
+	switch inbox.Channel {
+	case whatsappChannel.ChannelWhatsApp:
+		if req.WhatsAppTemplateID <= 0 {
+			return "", envelope.NewError(envelope.InputError, app.i18n.Ts("globals.messages.required", "name", "`whatsapp_template_id`"), nil)
+		}
+		if req.ContactID <= 0 {
+			if req.PhoneNumber == "" {
+				return "", envelope.NewError(envelope.InputError, app.i18n.Ts("globals.messages.required", "name", "`phone_number`"), nil)
+			}
+			if req.PhoneNumberCountryCode == "" {
+				return "", envelope.NewError(envelope.InputError, app.i18n.Ts("globals.messages.required", "name", "`phone_number_country_code`"), nil)
+			}
+			if req.FirstName == "" {
+				return "", envelope.NewError(envelope.InputError, app.i18n.Ts("globals.messages.required", "name", "`first_name`"), nil)
+			}
+		}
+	case "email":
+		if req.Content == "" {
+			return "", envelope.NewError(envelope.InputError, app.i18n.Ts("globals.messages.required", "name", "`content`"), nil)
+		}
+		if req.Email == "" {
+			return "", envelope.NewError(envelope.InputError, app.i18n.Ts("globals.messages.required", "name", "`contact_email`"), nil)
+		}
+		if req.FirstName == "" {
+			return "", envelope.NewError(envelope.InputError, app.i18n.Ts("globals.messages.required", "name", "`first_name`"), nil)
+		}
+		if !stringutil.ValidEmail(req.Email) {
+			return "", envelope.NewError(envelope.InputError, app.i18n.T("validation.invalidEmail"), nil)
+		}
+		for _, addr := range append(req.CC, req.BCC...) {
+			if !stringutil.ValidEmail(addr) {
+				return "", envelope.NewError(envelope.InputError, app.i18n.T("validation.invalidEmail"), nil)
+			}
+		}
+		if req.Initiator != umodels.UserTypeContact && req.Initiator != umodels.UserTypeAgent {
+			return "", envelope.NewError(envelope.InputError, app.i18n.T("globals.messages.somethingWentWrong"), nil)
+		}
+	default:
+		return "", envelope.NewError(envelope.InputError, app.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+
+	// Validate custom attribute keys. Skip unknown keys.
+	if len(req.CustomAttributes) > 0 {
+		attrs, err := app.customAttribute.GetAll("conversation")
+		if err != nil {
+			return "", err
+		}
+		validKeys := make(map[string]struct{}, len(attrs))
+		for _, a := range attrs {
+			validKeys[a.Key] = struct{}{}
+		}
+		for key := range req.CustomAttributes {
+			if _, ok := validKeys[key]; !ok {
+				delete(req.CustomAttributes, key)
+			}
+		}
+	}
+
+	return inbox.Channel, nil
+}
+
+// resolveWhatsAppContact returns the outbound contact, creating one keyed by the wa_id when none is selected.
+func resolveWhatsAppContact(app *App, req createConversationRequest) (int, error) {
+	if req.ContactID > 0 {
+		if _, err := app.user.GetContactOrVisitor(req.ContactID, ""); err != nil {
+			return 0, err
+		}
+		return req.ContactID, nil
+	}
+	dialCode := countries.DialCodeForISO(req.PhoneNumberCountryCode)
+	if dialCode == "" {
+		return 0, envelope.NewError(envelope.InputError, app.i18n.T("globals.messages.pickValidPhoneCountry"), nil)
+	}
+	local, err := localPhoneNumber(app, req.PhoneNumber, dialCode)
+	if err != nil {
+		return 0, err
+	}
+	waID := dialCode + local
+	contact := umodels.User{
+		Type:             umodels.UserTypeContact,
+		FirstName:        req.FirstName,
+		LastName:         req.LastName,
+		CustomAttributes: json.RawMessage(`{}`),
+	}
+	id, err := app.user.UpsertContactByChannelIdentity(whatsappChannel.ChannelWhatsApp, waID, &contact)
+	if err != nil {
+		return 0, err
+	}
+	if err := app.user.SetContactPhoneIfMissing(id, local, req.PhoneNumberCountryCode); err != nil {
+		app.lo.Error("error setting whatsapp contact phone", "user_id", id, "error", err)
+	}
+	return id, nil
+}
+
+// localPhoneNumber returns the digits after the country dial code, accepting numbers typed with a leading + or 00.
+func localPhoneNumber(app *App, phone, dialCode string) (string, error) {
+	phone, matchesCountry := stringutil.WhatsAppPhoneForDialCode(phone, dialCode)
+	if !matchesCountry {
+		return "", envelope.NewError(envelope.InputError, app.i18n.T("globals.messages.phoneCountryMismatch"), nil)
+	}
+	if phone == "" {
+		return "", envelope.NewError(envelope.InputError, app.i18n.T("validation.invalidPhone"), nil)
+	}
+	local := strings.TrimPrefix(phone, dialCode)
+	if local == "" {
+		return "", envelope.NewError(envelope.InputError, app.i18n.T("validation.invalidPhone"), nil)
+	}
+	return local, nil
+}
+
+func accessibleConversationUUID(app *App, uuid string, user umodels.User) (string, error) {
+	if _, err := enforceConversationAccess(app, uuid, user); err != nil {
+		var accessErr envelope.Error
+		if errors.As(err, &accessErr) && accessErr.ErrorType == envelope.PermissionError {
+			return "", nil
+		}
+		return "", err
+	}
+	return uuid, nil
+}

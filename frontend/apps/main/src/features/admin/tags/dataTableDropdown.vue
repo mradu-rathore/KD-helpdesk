@@ -1,0 +1,90 @@
+<template>
+  <DropdownMenu>
+    <DataTableActionTrigger />
+    <DropdownMenuContent>
+      <DropdownMenuItem @click="editTag">
+        <Pencil class="mr-2 h-4 w-4" />
+        {{ t('globals.messages.edit') }}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        @click="() => (alertOpen = true)"
+        class="text-destructive focus:text-destructive"
+      >
+        <Trash class="mr-2 h-4 w-4" />
+        {{ t('globals.messages.delete') }}
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+
+  <AlertDialog :open="alertOpen" @update:open="alertOpen = $event">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{{ t('globals.messages.areYouAbsolutelySure') }}</AlertDialogTitle>
+        <AlertDialogDescription>
+          {{ $t('admin.tags.deleteConfirmation') }}
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>{{ t('globals.messages.cancel') }}</AlertDialogCancel>
+        <AlertDialogAction variant="destructive" @click="deleteTag">{{
+          t('globals.messages.delete')
+        }}</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+</template>
+
+<script setup>
+import DataTableActionTrigger from '@main/components/datatable/DataTableActionTrigger.vue'
+import { ref } from 'vue'
+import { Pencil, Trash } from 'lucide-vue-next'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator
+} from '@shared-ui/components/ui/dropdown-menu/index.js'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@shared-ui/components/ui/alert-dialog/index.js'
+import { useEmitter } from '@/composables/useEmitter.js'
+import { EMITTER_EVENTS } from '@/constants/emitterEvents.js'
+import { useI18n } from 'vue-i18n'
+import api from '@/api/index.js'
+
+const { t } = useI18n()
+const alertOpen = ref(false)
+const emitter = useEmitter()
+
+const props = defineProps({
+  tag: {
+    type: Object,
+    required: true,
+    default: () => ({
+      id: '',
+      name: ''
+    })
+  }
+})
+
+const editTag = () => {
+  emitter.emit(EMITTER_EVENTS.EDIT_MODEL, {
+    model: 'tags',
+    data: props.tag
+  })
+}
+
+const deleteTag = async () => {
+  await api.deleteTag(props.tag.id)
+  alertOpen.value = false
+  emitter.emit(EMITTER_EVENTS.REFRESH_LIST, { model: 'tags' })
+}
+</script>

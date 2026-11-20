@@ -1,0 +1,625 @@
+package stringutil
+
+import (
+	"strings"
+	"testing"
+	"time"
+	"unicode/utf8"
+)
+
+func TestTruncateUTF8(t *testing.T) {
+	texts := []string{
+		"",
+		strings.Repeat("a", 1100),
+		strings.Repeat("é", 550),
+		strings.Repeat("界", 400),
+		strings.Repeat("😀", 300),
+		strings.Repeat("aé界😀", 120),
+		"这是客服的测试回复：如果你在邮箱里看到这条，说明离线邮件已经打通。直接回复这封邮件，内容会回到这个会话里。",
+	}
+	for _, text := range texts {
+		for limit := -1; limit <= len(text)+1; limit++ {
+			got := TruncateUTF8(text, limit)
+			var want strings.Builder
+			for _, r := range text {
+				if want.Len()+utf8.RuneLen(r) > limit {
+					break
+				}
+				want.WriteRune(r)
+			}
+			if !utf8.ValidString(got) || got != want.String() {
+				t.Fatalf("limit %d: got %q, want %q", limit, got, want.String())
+			}
+		}
+	}
+}
+
+func TestWhatsAppPhoneForDialCode(t *testing.T) {
+	tests := []struct {
+		name        string
+		phone       string
+		dialCode    string
+		want        string
+		wantMatches bool
+	}{
+		{"national", "98765 43210", "91", "919876543210", true},
+		{"international plus", "+1 (555) 000-1111", "1", "15550001111", true},
+		{"international double zero", "0091 98765 43210", "91", "919876543210", true},
+		{"national starts with dial code", "9198765432", "91", "919198765432", true},
+		{"international mismatch", "+1 555 000 1111", "91", "", false},
+		{"national trunk zero", "07700 900123", "44", "447700900123", true},
+		{"international with bracketed trunk zero", "+44 (0) 7700 900123", "44", "447700900123", true},
+		{"italy keeps leading zero", "06 1234 5678", "39", "390612345678", true},
+		{"italy international keeps leading zero", "+39 06 1234 5678", "39", "390612345678", true},
+		{"congo keeps leading zero", "06 123 4567", "242", "242061234567", true},
+		{"congo international keeps leading zero", "+242 06 123 4567", "242", "242061234567", true},
+		{"congo double zero prefix keeps national zero", "00242 06 123 4567", "242", "242061234567", true},
+		{"congo mismatched country", "+243 06 123 4567", "242", "", false},
+		{"dial code only", "+44", "44", "", true},
+		{"trunk zero only", "0", "44", "", true},
+		{"empty", "", "91", "", true},
+		{"punctuation", "+ - ", "91", "", true},
+		{"missing dial code", "9876543210", "", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, matches := WhatsAppPhoneForDialCode(tc.phone, tc.dialCode)
+			if got != tc.want || matches != tc.wantMatches {
+				t.Fatalf("got (%q, %v), want (%q, %v)", got, matches, tc.want, tc.wantMatches)
+			}
+		})
+	}
+}
+
+func TestRemoveItemByValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		remove   string
+		expected []string
+	}{
+		{
+			name:     "empty slice",
+			input:    []string{},
+			remove:   "a",
+			expected: []string{},
+		},
+		{
+			name:     "no matches",
+			input:    []string{"b", "c"},
+			remove:   "a",
+			expected: []string{"b", "c"},
+		},
+		{
+			name:     "single match",
+			input:    []string{"a", "b", "c"},
+			remove:   "b",
+			expected: []string{"a", "c"},
+		},
+		{
+			name:     "multiple matches",
+			input:    []string{"a", "b", "a", "c", "a"},
+			remove:   "a",
+			expected: []string{"b", "c"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := RemoveItemByValue(tt.input, tt.remove)
+			if len(result) != len(tt.expected) {
+				t.Errorf("got len %d, want %d", len(result), len(tt.expected))
+			}
+			for i := range result {
+				if result[i] != tt.expected[i] {
+					t.Errorf("at index %d got %s, want %s", i, result[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		name           string
+		duration       time.Duration
+		includeSeconds bool
+		expected       string
+	}{
+		{
+			name:           "zero duration with seconds",
+			duration:       0,
+			includeSeconds: true,
+			expected:       "0 minutes",
+		},
+		{
+			name:           "hours only",
+			duration:       2 * time.Hour,
+			includeSeconds: false,
+			expected:       "2 hours 0 minutes",
+		},
+		{
+			name:           "hours and minutes",
+			duration:       2*time.Hour + 30*time.Minute,
+			includeSeconds: false,
+			expected:       "2 hours 30 minutes",
+		},
+		{
+			name:           "full duration with seconds",
+			duration:       2*time.Hour + 30*time.Minute + 15*time.Second,
+			includeSeconds: true,
+			expected:       "2 hours 30 minutes 15 seconds",
+		},
+		{
+			name:           "full duration without seconds",
+			duration:       2*time.Hour + 30*time.Minute + 15*time.Second,
+			includeSeconds: false,
+			expected:       "2 hours 30 minutes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatDuration(tt.duration, tt.includeSeconds)
+			if result != tt.expected {
+				t.Errorf("got %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractConvUUID(t *testing.T) {
+	tests := []struct {
+		name     string
+		email    string
+		expected string
+	}{
+		{
+			name:     "valid UUID v4",
+			email:    "support+conv-13216cf7-6626-4b0d-a938-46ce65a20701@domain.com",
+			expected: "13216cf7-6626-4b0d-a938-46ce65a20701",
+		},
+		{
+			name:     "uppercase UUID v4",
+			email:    "support+conv-13216CF7-6626-4B0D-A938-46CE65A20701@domain.com",
+			expected: "13216CF7-6626-4B0D-A938-46CE65A20701",
+		},
+		{
+			name:     "no plus addressing",
+			email:    "support@domain.com",
+			expected: "",
+		},
+		{
+			name:     "non-conv plus addressing",
+			email:    "support+other@domain.com",
+			expected: "",
+		},
+		{
+			name:     "short non-UUID (user email)",
+			email:    "support+conv-21321@domain.com",
+			expected: "",
+		},
+		{
+			name:     "invalid UUID format",
+			email:    "support+conv-abc123-def456@domain.com",
+			expected: "",
+		},
+		{
+			name:     "missing 4 in UUID (invalid v4)",
+			email:    "support+conv-13216cf7-6626-ab0d-a938-46ce65a20701@domain.com",
+			expected: "",
+		},
+		{
+			name:     "empty string",
+			email:    "",
+			expected: "",
+		},
+		{
+			name:     "missing @ symbol",
+			email:    "support+conv-13216cf7-6626-4b0d-a938-46ce65a20701",
+			expected: "",
+		},
+		{
+			name:     "UUID with extra chars",
+			email:    "support+conv-13216cf7-6626-4b0d-a938-46ce65a20701-extra@domain.com",
+			expected: "",
+		},
+		{
+			name:     "valid UUID different local part",
+			email:    "inbox+conv-a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d@example.org",
+			expected: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ExtractConvUUID(tt.email)
+			if result != tt.expected {
+				t.Errorf("ExtractConvUUID(%q) = %q, want %q", tt.email, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRemoveConvPlusAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		email    string
+		expected string
+	}{
+		{
+			name:     "conversation plus address",
+			email:    "support+conv-13216cf7-6626-4b0d-a938-46ce65a20701@domain.com",
+			expected: "support@domain.com",
+		},
+		{
+			name:     "uppercase conversation plus address",
+			email:    "support+conv-13216CF7-6626-4B0D-A938-46CE65A20701@domain.com",
+			expected: "support@domain.com",
+		},
+		{
+			name:     "no plus addressing",
+			email:    "support@domain.com",
+			expected: "support@domain.com",
+		},
+		{
+			name:     "non-conv plus addressing",
+			email:    "support+sales@domain.com",
+			expected: "support+sales@domain.com",
+		},
+		{
+			name:     "short non-UUID",
+			email:    "support+conv-21321@domain.com",
+			expected: "support+conv-21321@domain.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if result := RemoveConvPlusAddress(tt.email); result != tt.expected {
+				t.Errorf("RemoveConvPlusAddress(%q) = %q, want %q", tt.email, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractReferenceNumber(t *testing.T) {
+	tests := []struct {
+		name     string
+		subject  string
+		expected string
+	}{
+		{
+			name:     "simple reference number",
+			subject:  "Test - #392",
+			expected: "392",
+		},
+		{
+			name:     "with RE prefix",
+			subject:  "RE: Test - #392",
+			expected: "392",
+		},
+		{
+			name:     "multiple hashes picks last",
+			subject:  "Order #123 - #392",
+			expected: "392",
+		},
+		{
+			name:     "no reference number",
+			subject:  "Just a regular subject",
+			expected: "",
+		},
+		{
+			name:     "hash without number",
+			subject:  "Test #abc",
+			expected: "",
+		},
+		{
+			name:     "empty string",
+			subject:  "",
+			expected: "",
+		},
+		{
+			name:     "number without hash",
+			subject:  "Test 392",
+			expected: "",
+		},
+		{
+			name:     "multiple RE prefixes",
+			subject:  "RE: RE: Test - #100",
+			expected: "100",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ExtractReferenceNumber(tt.subject)
+			if result != tt.expected {
+				t.Errorf("ExtractReferenceNumber(%q) = %q, want %q", tt.subject, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSanitizeUTF8(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"empty", "", ""},
+		{"plain ascii unchanged", "Hello, world!", "Hello, world!"},
+		{"valid copyright unchanged", "© 2026", "© 2026"},
+		{"orphan 0xa9 replaced", "\xa9 2026 Upstox", "� 2026 Upstox"},
+		{"nul stripped", "a\x00b", "ab"},
+		{"chinese unchanged", "你好世界", "你好世界"},
+		{"devanagari unchanged", "नमस्ते", "नमस्ते"},
+		{"arabic unchanged", "مرحبا", "مرحبا"},
+		{"emoji unchanged", "ok 😀👍", "ok 😀👍"},
+		{"accented latin unchanged", "café résumé", "café résumé"},
+		{"run of invalid bytes collapses to one replacement", "x\xa9\xa9y", "x�y"},
+		{"truncated 3-byte char replaced", "\xe4\xbd", "�"},
+		{"lead byte at end replaced", "abc\xc3", "abc�"},
+		{"overlong encoding replaced", "x\xc0\x80y", "x�y"},
+		{"cp1252 smart quotes replaced", "\x93hi\x94", "�hi�"},
+		{"multiple embedded nuls stripped", "a\x00\x00b\x00c", "abc"},
+		{"nul and invalid byte combined", "a\x00\xa9b", "a�b"},
+		{"valid multibyte preserved around invalid byte", "a你\xa9好b", "a你�好b"},
+		{"bom preserved", "\ufeffhi", "\ufeffhi"},
+		{"existing replacement char preserved", "a�b", "a�b"},
+		{"crlf and tab preserved", "l1\r\nl2\t", "l1\r\nl2\t"},
+		{"paired continuation kept, orphan replaced", "é\xa9", "é�"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SanitizeUTF8(tt.input); got != tt.expected {
+				t.Errorf("SanitizeUTF8(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSanitizeFilename(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plain ascii", "report.pdf", "report.pdf"},
+		{"case preserved", "Report.PDF", "Report.PDF"},
+		{"cyrillic preserved", "Документ_Иванов.pdf", "Документ_Иванов.pdf"},
+		{"chinese with space", "报告 2024.xlsx", "报告-2024.xlsx"},
+		{"spaces collapse to hyphen", "my  file name.txt", "my-file-name.txt"},
+		{"path traversal", "../../etc/passwd", "passwd"},
+		{"windows path stripped to base name", `dir\sub\file.txt`, "file.txt"},
+		{"control chars stripped", "a\r\nb\x00c.pdf", "a-bc.pdf"},
+		{"empty", "", "attachment"},
+		{"whitespace only", "   ", "attachment"},
+		{"dot only", ".", "attachment"},
+		{"dot dot", "..", "attachment"},
+		{"slash only", "/", "attachment"},
+		{"slashes only", "///", "attachment"},
+		{"backslash only", `\`, "attachment"},
+		{"c1 control stripped", "a\u0085b.pdf", "ab.pdf"},
+		{"invalid utf8 replaced", "rapport\xe9.pdf", "rapport�.pdf"},
+		{"emoji preserved", "photo😀.jpg", "photo😀.jpg"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SanitizeFilename(tt.input); got != tt.expected {
+				t.Errorf("SanitizeFilename(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSplitName(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantFirst string
+		wantLast  string
+	}{
+		{name: "empty", input: "", wantFirst: "", wantLast: ""},
+		{name: "whitespace only", input: "   ", wantFirst: "", wantLast: ""},
+		{name: "single name", input: "Cher", wantFirst: "Cher", wantLast: ""},
+		{name: "first and last", input: "John Doe", wantFirst: "John", wantLast: "Doe"},
+		{name: "middle name", input: "John Michael Doe", wantFirst: "John", wantLast: "Michael Doe"},
+		{name: "multi-word surname", input: "Ludwig van der Berg", wantFirst: "Ludwig", wantLast: "van der Berg"},
+		{name: "extra spaces", input: "  John   Doe  ", wantFirst: "John", wantLast: "Doe"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			first, last := SplitName(tt.input)
+			if first != tt.wantFirst || last != tt.wantLast {
+				t.Errorf("SplitName(%q) = (%q, %q), want (%q, %q)", tt.input, first, last, tt.wantFirst, tt.wantLast)
+			}
+		})
+	}
+}
+
+func TestCapitalizeFirst(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{input: "", want: ""},
+		{input: "thulasi", want: "Thulasi"},
+		{input: "Thulasi", want: "Thulasi"},
+		{input: "john.doe", want: "John.doe"},
+		{input: "123abc", want: "123abc"},
+		{input: "élodie", want: "Élodie"},
+		{input: "\xffabc", want: "\xffabc"},
+	}
+
+	for _, tt := range tests {
+		if got := CapitalizeFirst(tt.input); got != tt.want {
+			t.Errorf("CapitalizeFirst(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+func TestGenerateSlug(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple title",
+			input:    "Hello World",
+			expected: "hello-world",
+		},
+		{
+			name:     "title with special characters",
+			input:    "Hello, World! How are you?",
+			expected: "hello-world-how-are-you",
+		},
+		{
+			name:     "title with numbers",
+			input:    "Article 123: How to Code",
+			expected: "article-123-how-to-code",
+		},
+		{
+			name:     "title with underscores",
+			input:    "test_article_name",
+			expected: "test_article_name",
+		},
+		{
+			name:     "title with multiple spaces",
+			input:    "Hello     World",
+			expected: "hello-world",
+		},
+		{
+			name:     "title with leading/trailing spaces",
+			input:    "  Hello World  ",
+			expected: "hello-world",
+		},
+		{
+			name:     "title with multiple hyphens",
+			input:    "Hello---World",
+			expected: "hello-world",
+		},
+		{
+			name:     "unicode characters",
+			input:    "Hello World",
+			expected: "hello-world",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GenerateSlug(tt.input)
+			if result != tt.expected {
+				t.Errorf("GenerateSlug(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHTML2TextMarkdownLinks(t *testing.T) {
+	tests := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "link with distinct text becomes a markdown link",
+			html: `<p>See <a href="https://example.com/guide">the guide</a> for steps.</p>`,
+			want: "See [the guide](https://example.com/guide) for steps.",
+		},
+		{
+			name: "link text equal to url not duplicated",
+			html: `<p><a href="https://example.com">https://example.com</a></p>`,
+			want: "https://example.com",
+		},
+		{
+			name: "plain text unchanged",
+			html: `<p>No links here.</p>`,
+			want: "No links here.",
+		},
+		{
+			name: "nested markup inside the anchor flattens to link text",
+			html: `<p><a href="https://example.com/x"><strong>Pay</strong> now</a></p>`,
+			want: "[Pay now](https://example.com/x)",
+		},
+		{
+			name: "brackets in link text are escaped",
+			html: `<p><a href="https://example.com">Docs [beta]</a></p>`,
+			want: `[Docs \[beta\]](https://example.com)`,
+		},
+		{
+			name: "url with parentheses is wrapped in angle brackets",
+			html: `<p><a href="https://example.com/a(b)">See</a></p>`,
+			want: "[See](<https://example.com/a(b)>)",
+		},
+		{
+			name: "mailto link becomes markdown",
+			html: `<p>Mail <a href="mailto:billing@example.com">billing</a>.</p>`,
+			want: "Mail [billing](mailto:billing@example.com).",
+		},
+		{
+			name: "linked image becomes bare url",
+			html: `<a href="https://x.io"><img src="cid:1" alt="Banner"></a>`,
+			want: "https://x.io",
+		},
+		{
+			name: "bold kept as markdown",
+			html: `<div>Abra&ccedil;os,<br><b>Jo&atilde;o</b></div>`,
+			want: "Abraços,\n*João*",
+		},
+		{
+			name: "lists keep bullets",
+			html: `<ul><li>First</li><li>Second</li></ul>`,
+			want: "* First\n* Second",
+		},
+		{
+			name: "blockquote kept",
+			html: `<blockquote>quoted line</blockquote>after quote`,
+			want: "> \n> quoted line\n\nafter quote",
+		},
+		{
+			name: "multilingual",
+			html: `<div>visible 您好 مرحبا שלום Grüße</div>`,
+			want: "visible 您好 مرحبا שלום Grüße",
+		},
+		{
+			name: "empty input",
+			html: ``,
+			want: "",
+		},
+		{
+			name: "anchor without href keeps its text",
+			html: `<p><a name="top">Top</a> of page.</p>`,
+			want: "Top of page.",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HTML2TextMarkdownLinks(tt.html); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeMessageID(t *testing.T) {
+	for _, tc := range []struct {
+		name, in, want string
+	}{
+		{"bracketed", "<abc@example.com>", "abc@example.com"},
+		{"already bare", "abc@example.com", "abc@example.com"},
+		{"surrounding whitespace", "  <abc@example.com>  ", "abc@example.com"},
+		{"empty stays empty", "", ""},
+		{"brackets only", "<>", ""},
+		{"line feed is rejected", "a\nb@example.com", ""},
+		{"carriage return is rejected", "a\rb@example.com", ""},
+		{"crlf inside brackets is rejected", "<a\r\nb@host>", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NormalizeMessageID(tc.in); got != tc.want {
+				t.Errorf("NormalizeMessageID(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
