@@ -220,6 +220,7 @@ const setTicketCustomer = (uuid, customerID) =>
   http.put(`/api/v1/conversations/${uuid}/customer`, { customer_id: customerID || 0 })
 const getKdDashboard = (params) => http.get('/api/v1/kd/dashboard', { params })
 const getKdContacts = (params) => http.get('/api/v1/kd/contacts', { params })
+const createKdTicket = (data) => http.post('/api/v1/kd/tickets', data)
 const getContact = (id) => http.get(`/api/v1/contacts/${id}`)
 const createContact = (data) =>
   http.post('/api/v1/contacts', data, {
@@ -901,6 +902,7 @@ export default {
   setTicketCustomer,
   getKdDashboard,
   getKdContacts,
+  createKdTicket,
   getContact,
   createContact,
   updateContact,

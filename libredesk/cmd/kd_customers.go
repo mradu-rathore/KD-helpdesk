@@ -461,9 +461,10 @@ type kdContactRow struct {
 // ticket counts; q matches name, email, phone or customer name.
 func handleKDGetContacts(r *fastglue.Request) error {
 	var (
-		app = r.Context.(*App)
-		q   = strings.TrimSpace(string(r.RequestCtx.QueryArgs().Peek("q")))
-		out = []kdContactRow{}
+		app           = r.Context.(*App)
+		q             = strings.TrimSpace(string(r.RequestCtx.QueryArgs().Peek("q")))
+		customerID, _ = strconv.Atoi(string(r.RequestCtx.QueryArgs().Peek("customer_id")))
+		out           = []kdContactRow{}
 	)
 	page, pageSize := getPagination(r)
 	err := app.db.Select(&out, `
@@ -482,8 +483,9 @@ func handleKDGetContacts(r *fastglue.Request) error {
 		AND ($1 = '' OR (u.first_name || ' ' || COALESCE(u.last_name, '')) ILIKE '%' || $1 || '%'
 			OR u.email ILIKE '%' || $1 || '%' OR u.phone_number ILIKE '%' || $1 || '%'
 			OR k.name ILIKE '%' || $1 || '%')
+		AND ($4 = 0 OR kc.customer_id = $4)
 		ORDER BY LOWER(u.first_name), LOWER(COALESCE(u.last_name, '')), u.id
-		LIMIT $2 OFFSET $3`, q, pageSize, (page-1)*pageSize)
+		LIMIT $2 OFFSET $3`, q, pageSize, (page-1)*pageSize, customerID)
 	if err != nil {
 		return kdServerError(r, err)
 	}

@@ -172,6 +172,7 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.GET("/api/v1/contacts/{id}/customer", perm(handleKDGetContactCustomer, "contacts:read"))
 	g.GET("/api/v1/conversations/{uuid}/customer", perm(handleKDGetTicketCustomer, "conversations:read"))
 	g.PUT("/api/v1/conversations/{uuid}/customer", perm(handleKDSetTicketCustomer, "conversations:read"))
+	g.POST("/api/v1/kd/tickets", perm(handleKDCreateTicket, "conversations:write"))
 	g.GET("/api/v1/kd/dashboard", perm(handleKDDashboard, "reports:manage"))
 	g.GET("/api/v1/kd/contacts", perm(handleKDGetContacts, "contacts:read_all"))
 	g.PUT("/api/v1/contacts/{id}", perm(handleUpdateContact, "contacts:write"))
