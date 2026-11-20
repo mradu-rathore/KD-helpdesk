@@ -24,6 +24,9 @@ if [ "${KD_LOAD_SAMPLE_DATA:-false}" = "true" ]; then
     echo "Loading KD views and sample data..."
     psql -v ON_ERROR_STOP=1 -q -f seed.sql
   fi
+  # Earlier sample data left the Support team without a timezone, which breaks
+  # Libredesk's team loading; give it KD's
+  psql -q -c "UPDATE teams SET timezone = 'Europe/Dublin' WHERE timezone IS NULL" || true
   # Sample customers (added later than the tickets, so checked on their own)
   customers=$(psql -tAc "SELECT count(*) FROM kd_customers" || echo 1)
   if [ "$customers" = "0" ]; then

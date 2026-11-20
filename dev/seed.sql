@@ -53,7 +53,7 @@ INSERT INTO inboxes (name, channel, enabled, config, "from")
 VALUES ('KD Support (sample)', 'email', false, '{"kd_sample": true}', 'support@kd-demo.example');
 
 -- Team
-INSERT INTO teams (name, emoji, conversation_assignment_type) VALUES ('Support', '🛠', 'Manual');
+INSERT INTO teams (name, emoji, conversation_assignment_type, timezone) VALUES ('Support', '🛠', 'Manual', 'Europe/Dublin');
 
 -- Agents (fictional; no password, so they can't log in)
 INSERT INTO users (type, email, first_name, last_name, custom_attributes) VALUES
