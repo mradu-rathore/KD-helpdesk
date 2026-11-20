@@ -1,24 +1,12 @@
 import { useRouter } from 'vue-router'
-import { useIsMobile } from '@shared-ui/composables'
-import { useConversationStore } from '@main/stores/conversation'
 
 export function useInboxNavigation() {
   const router = useRouter()
-  const isMobile = useIsMobile()
-  const conversationStore = useConversationStore()
 
-  const openConversationUUID = () =>
-    !isMobile.value && conversationStore.isConversationOpen
-      ? conversationStore.conversation.data?.uuid
-      : null
-
-  const navigate = (listName, params) => {
-    const uuid = openConversationUUID()
-    if (uuid) {
-      return router.push({ name: `${listName}-conversation`, params: { ...params, uuid } })
-    }
-    return router.push({ name: listName, params })
-  }
+  // KD: Zendesk flow - clicking a view (or inbox) always shows its ticket
+  // list. Open tickets stay reachable from the tab strip, so we no longer
+  // keep the current ticket on screen like the old split layout did.
+  const navigate = (listName, params) => router.push({ name: listName, params })
 
   const navigateToInbox = (type) => navigate('inbox', { type })
   const navigateToTeamInbox = (teamID) => navigate('team-inbox', { teamID })
