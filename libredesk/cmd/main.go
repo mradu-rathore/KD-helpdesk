@@ -1,0 +1,471 @@
+package main
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"hash/fnv"
+	"log"
+	"os"
+	"os/signal"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	_ "time/tzdata"
+
+	activitylog "github.com/abhinavxd/libredesk/internal/activity_log"
+	"github.com/abhinavxd/libredesk/internal/ai"
+	"github.com/abhinavxd/libredesk/internal/aiagent"
+	auth_ "github.com/abhinavxd/libredesk/internal/auth"
+	"github.com/abhinavxd/libredesk/internal/authz"
+	businesshours "github.com/abhinavxd/libredesk/internal/business_hours"
+	"github.com/abhinavxd/libredesk/internal/colorlog"
+	"github.com/abhinavxd/libredesk/internal/csat"
+	customAttribute "github.com/abhinavxd/libredesk/internal/custom_attribute"
+	"github.com/abhinavxd/libredesk/internal/inbox/channel/livechat/proactive"
+	"github.com/abhinavxd/libredesk/internal/macro"
+	notifier "github.com/abhinavxd/libredesk/internal/notification"
+	"github.com/abhinavxd/libredesk/internal/report"
+	"github.com/abhinavxd/libredesk/internal/search"
+	"github.com/abhinavxd/libredesk/internal/sla"
+	umodels "github.com/abhinavxd/libredesk/internal/user/models"
+	"github.com/abhinavxd/libredesk/internal/view"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/abhinavxd/libredesk/internal/automation"
+	contextlink "github.com/abhinavxd/libredesk/internal/context_link"
+	"github.com/abhinavxd/libredesk/internal/conversation"
+	"github.com/abhinavxd/libredesk/internal/conversation/priority"
+	"github.com/abhinavxd/libredesk/internal/conversation/status"
+	"github.com/abhinavxd/libredesk/internal/helpcenter"
+	"github.com/abhinavxd/libredesk/internal/importer"
+	"github.com/abhinavxd/libredesk/internal/inbox"
+	"github.com/abhinavxd/libredesk/internal/media"
+	"github.com/abhinavxd/libredesk/internal/oidc"
+	"github.com/abhinavxd/libredesk/internal/ratelimit"
+	"github.com/abhinavxd/libredesk/internal/role"
+	"github.com/abhinavxd/libredesk/internal/setting"
+	"github.com/abhinavxd/libredesk/internal/tag"
+	"github.com/abhinavxd/libredesk/internal/team"
+	"github.com/abhinavxd/libredesk/internal/template"
+	"github.com/abhinavxd/libredesk/internal/user"
+	"github.com/abhinavxd/libredesk/internal/webhook"
+	whatsappapi "github.com/abhinavxd/libredesk/internal/whatsapp"
+	whatsappTemplate "github.com/abhinavxd/libredesk/internal/whatsapp/template"
+	"github.com/abhinavxd/libredesk/internal/ws"
+	"github.com/jmoiron/sqlx"
+	"github.com/knadh/go-i18n"
+	"github.com/knadh/koanf/v2"
+	"github.com/knadh/stuffbin"
+	"github.com/valyala/fasthttp"
+	"github.com/zerodha/fastcache/v4"
+	"github.com/zerodha/fastglue"
+	"github.com/zerodha/logf"
+)
+
+var (
+	ko          = koanf.New(".")
+	ctx         = context.Background()
+	appName     = "libredesk"
+	frontendDir = "frontend/dist/main"
+	widgetDir   = "frontend/dist/widget"
+
+	// Injected at build time.
+	buildString   string
+	versionString string
+
+	// assetVersion is hashed from buildString so public cache-bust URLs don't leak the version.
+	assetVersion = func() string {
+		src := buildString
+		if src == "" {
+			src = strconv.FormatInt(time.Now().Unix(), 36)
+		}
+		h := fnv.New32a()
+		h.Write([]byte(src))
+		return strconv.FormatUint(uint64(h.Sum32()), 36)
+	}()
+)
+
+const (
+	sampleEncKey = "your-32-char-random-string-here!"
+
+	serverShutdownTimeout = 8 * time.Second
+)
+
+// App is the global app context which is passed and injected in the http handlers.
+type App struct {
+	proactive          *proactive.Manager
+	ctx                context.Context
+	fs                 stuffbin.FileSystem
+	consts             atomic.Value
+	auth               *auth_.Auth
+	sessionsMu         sync.RWMutex
+	authz              *authz.Enforcer
+	i18n               *i18n.I18n
+	lo                 *logf.Logger
+	oidc               *oidc.Manager
+	media              *media.Manager
+	setting            *setting.Manager
+	role               *role.Manager
+	user               *user.Manager
+	team               *team.Manager
+	status             *status.Manager
+	priority           *priority.Manager
+	tag                *tag.Manager
+	inbox              *inbox.Manager
+	tmpl               *template.Manager
+	macro              *macro.Manager
+	conversation       *conversation.Manager
+	automation         *automation.Engine
+	businessHours      *businesshours.Manager
+	sla                *sla.Manager
+	csat               *csat.Manager
+	view               *view.Manager
+	ai                 *ai.Manager
+	aiAgent            *aiagent.Manager
+	helpcenter         *helpcenter.Manager
+	search             *search.Manager
+	activityLog        *activitylog.Manager
+	notifier           *notifier.Service
+	userNotification   *notifier.UserNotificationManager
+	notificationPref   *notifier.PreferenceManager
+	pushNotification   *notifier.PushManager
+	customAttribute    *customAttribute.Manager
+	report             *report.Manager
+	webhook            *webhook.Manager
+	contextLink        *contextlink.Manager
+	rateLimit          *ratelimit.Limiter
+	redis              *redis.Client
+	db                 *sqlx.DB
+	fc                 *fastcache.FastCache
+	importer           *importer.Importer
+	whatsappTemplate   *whatsappTemplate.Manager
+	whatsappClient     *whatsappapi.Client
+	whatsappIngester   atomic.Pointer[WhatsAppIngester]
+	whatsappIngesterMu sync.Mutex
+	// Inbox IDs whose provider credentials were recently rejected, keyed to the last error time.
+	inboxAuthErrors sync.Map
+	wsHub           *ws.Hub
+
+	// Global state that stores data on an available app update.
+	update *AppUpdate
+	// Flag to indicate if app restart is required for settings to take effect.
+	restartRequired bool
+	sync.Mutex
+}
+
+func main() {
+	// Set up signal handler.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Load command line flags into Koanf.
+	initFlags()
+
+	if ko.Bool("version") {
+		fmt.Println(buildString)
+		os.Exit(0)
+	}
+
+	// Build string injected at build time.
+	colorlog.Green("Build: %s", buildString)
+
+	// Load the config files into Koanf.
+	initConfig(ko)
+
+	// Validate custom static directory if provided.
+	if dir := getCustomStaticDir(); dir != "" {
+		if _, err := os.Stat(dir); err != nil {
+			log.Fatalf("--static-dir path not accessible: %s: %v", dir, err)
+		}
+		colorlog.Green("Using custom static directory: %s", dir)
+	}
+
+	// Init stuffbin fs with optional custom static dir overlay.
+	fs := initFS(getCustomStaticDir())
+
+	db := initDB()
+
+	if ko.Bool("install") {
+		install(ctx, db, fs, ko.Bool("idempotent-install"), !ko.Bool("yes"))
+		os.Exit(0)
+	}
+
+	if ko.Bool("set-system-user-password") {
+		setSystemUserPass(ctx, db)
+		os.Exit(0)
+	}
+
+	// Check if schema is installed.
+	installed, err := checkSchema(db)
+	if err != nil {
+		log.Fatalf("error checking db schema: %v", err)
+	}
+	if !installed {
+		log.Println("database tables are missing. Use the `--install` flag to set up the database schema.")
+		os.Exit(0)
+	}
+
+	if ko.Bool("upgrade") {
+		upgrade(db, fs, !ko.Bool("yes"))
+		os.Exit(0)
+	}
+
+	checkPendingUpgrade(db)
+
+	// Load app settings from DB into the Koanf instance.
+	settings := initSettings(db)
+	loadSettings(settings)
+
+	validateConfig(ko)
+
+	startPprof(initLogger("pprof"))
+
+	// Fallback for config typo. Logs a warning but continues to work with the incorrect key.
+	// Uses 'message.message_outgoing_scan_interval' (correct key) as default key, falls back to the common typo.
+	msgOutgoingScanIntervalKey := "message.message_outgoing_scan_interval"
+	if ko.String(msgOutgoingScanIntervalKey) == "" {
+		if ko.String("message.message_outoing_scan_interval") != "" {
+			colorlog.Red("WARNING: typo in config key 'message.message_outoing_scan_interval' detected. Use 'message.message_outgoing_scan_interval' instead in your config.toml file. Support for this incorrect key will be removed in a future release.")
+			msgOutgoingScanIntervalKey = "message.message_outoing_scan_interval"
+		}
+	}
+
+	var (
+		autoAssignInterval          = ko.MustDuration("autoassigner.autoassign_interval")
+		unsnoozeInterval            = ko.MustDuration("conversation.unsnooze_interval")
+		draftRetentionDuration      = cmp.Or(ko.Duration("conversation.draft_retention_duration"), 360*time.Hour)
+		automationWorkers           = ko.MustInt("automation.worker_count")
+		messageOutgoingQWorkers     = ko.MustDuration("message.outgoing_queue_workers")
+		messageIncomingQWorkers     = ko.MustDuration("message.incoming_queue_workers")
+		messageOutgoingScanInterval = ko.MustDuration(msgOutgoingScanIntervalKey)
+		slaEvaluationInterval       = ko.MustDuration("sla.evaluation_interval")
+		lo                          = initLogger(appName)
+		rdb                         = initRedis()
+		constants                   = initConstants()
+		i18n                        = initI18n(fs)
+		csat                        = initCSAT(db, i18n)
+		oidc                        = initOIDC(db, settings, i18n)
+		status                      = initStatus(db, i18n)
+		priority                    = initPriority(db, i18n)
+		ssrfControl                 = initSSRFControl()
+		template                    = initTemplate(db, fs, constants, i18n)
+		media                       = initMedia(db, i18n, settings)
+		inbox                       = initInbox(db, i18n)
+		team                        = initTeam(db, i18n)
+		businessHours               = initBusinessHours(db, i18n)
+		webhook                     = initWebhook(db, i18n, ssrfControl)
+		user                        = initUser(i18n, db)
+		auth                        = initAuth(oidc, rdb, i18n, ssrfControl)
+		wsHub                       = initWS(user)
+		notifier                    = initNotifier()
+		userNotification            = initUserNotification(db, i18n)
+		notificationPreference      = initNotificationPreference(db, i18n)
+		replyDeliveryChecker        = initReplyDeliveryChecker(userNotification, user, notificationPreference)
+		pushNotification            = initPushNotification(db, settings, i18n, replyDeliveryChecker)
+		notificationEmailQueue      = initNotificationEmailQueue(db, notifier, replyDeliveryChecker)
+		notifDispatcher             = initNotifDispatcher(userNotification, notificationPreference, pushNotification, notificationEmailQueue, wsHub, ko.Bool("notification.email.enabled"))
+		automation                  = initAutomationEngine(db, i18n)
+		ai                          = initAI(ctx, db, i18n, ssrfControl)
+		sla                         = initSLA(db, team, settings, businessHours, template, user, i18n, notifDispatcher)
+		conversation                = initConversations(i18n, sla, status, priority, wsHub, db, inbox, user, team, media, settings, csat, automation, template, webhook, notifDispatcher)
+		aiAgent                     = initAIAgent(db, i18n, ai, conversation, inbox, media, settings, user, notifier, rdb)
+		helpCenter                  = initHelpCenter(db, i18n, ai)
+		autoassigner                = initAutoAssigner(team, user, conversation)
+		rateLimiter                 = initRateLimit(rdb)
+	)
+
+	wsHub.SetConversationStore(conversation)
+	automation.SetConversationStore(conversation)
+	systemUser, err := user.GetSystemUser()
+	if err != nil {
+		log.Fatalf("error fetching system user: %v", err)
+	}
+	automation.SetSystemUserID(systemUser.ID)
+	conversation.SetAIAgent(aiAgent)
+
+	waClient := initWhatsAppClient()
+	waTemplates := initWhatsAppTemplates(db, i18n, waClient, inbox)
+	conversation.SetWhatsAppTemplateStore(waTemplates)
+	conversation.SetArticleReferenceStore(helpCenter)
+
+	go automation.Run(ctx, automationWorkers)
+	go autoassigner.Run(ctx, autoAssignInterval)
+	go conversation.RunUnsnoozer(ctx, unsnoozeInterval)
+	go conversation.RunContinuity(ctx)
+	go webhook.Run(ctx)
+	go notifier.Run(ctx)
+	go sla.Run(ctx, slaEvaluationInterval)
+	go sla.SendNotifications(ctx)
+	go media.DeleteUnlinkedMedia(ctx)
+	go user.MonitorUserAvailability(ctx, onUsersOffline(conversation))
+	go conversation.RunDraftCleaner(ctx, draftRetentionDuration)
+	go userNotification.RunNotificationCleaner(ctx)
+	go helpCenter.RunSearchLogCleaner(ctx)
+	if ko.Bool("notification.email.enabled") {
+		go notificationEmailQueue.Run(ctx)
+	}
+	go pushNotification.Run(ctx)
+	go aiAgent.Run(ctx, cmp.Or(ko.Int("ai_agent.worker_count"), 10))
+	go ai.Run(ctx)
+
+	var app = &App{
+		ctx:              ctx,
+		lo:               lo,
+		fs:               fs,
+		sla:              sla,
+		oidc:             oidc,
+		i18n:             i18n,
+		auth:             auth,
+		media:            media,
+		setting:          settings,
+		inbox:            inbox,
+		user:             user,
+		team:             team,
+		csat:             csat,
+		status:           status,
+		priority:         priority,
+		tmpl:             template,
+		notifier:         notifier,
+		consts:           atomic.Value{},
+		conversation:     conversation,
+		automation:       automation,
+		businessHours:    businessHours,
+		activityLog:      initActivityLog(db, i18n),
+		customAttribute:  initCustomAttribute(db, i18n),
+		authz:            initAuthz(i18n),
+		view:             initView(db, i18n),
+		report:           initReport(db, i18n),
+		search:           initSearch(db, i18n, conversation),
+		role:             initRole(db, i18n),
+		tag:              initTag(db, i18n),
+		macro:            initMacro(db, i18n),
+		ai:               ai,
+		aiAgent:          aiAgent,
+		helpcenter:       helpCenter,
+		importer:         initImporter(i18n),
+		webhook:          webhook,
+		contextLink:      initContextLink(db, i18n),
+		proactive:        initProactive(db, i18n),
+		rateLimit:        rateLimiter,
+		redis:            rdb,
+		db:               db,
+		fc:               initFastCache(rdb),
+		userNotification: userNotification,
+		whatsappClient:   waClient,
+		whatsappTemplate: waTemplates,
+		notificationPref: notificationPreference,
+		pushNotification: pushNotification,
+		wsHub:            wsHub,
+	}
+	app.consts.Store(constants)
+	helpCenterCacheOpts.Logger = log.New(helpCenterCacheLogWriter{lo: app.lo}, "", 0)
+
+	waClient.SetAuthErrorHook(makeWhatsAppAuthErrorHook(app))
+	if err := ensureWhatsAppIngester(app); err != nil {
+		app.lo.Error("error starting whatsapp ingester, inbound whatsapp messages will not be processed", "error", err)
+	}
+
+	startInboxes(ctx, inbox, conversation, user, conversation.SignAvatarURL, waClient, conversation, makeInboxAuthStatusHook(app))
+
+	// The outgoing scanner needs the inboxes registered, else queued messages fail with "inbox not found".
+	go conversation.Run(ctx, messageIncomingQWorkers, messageOutgoingQWorkers, messageOutgoingScanInterval)
+
+	go whatsappTemplateSyncWorker(ctx, app)
+
+	g := fastglue.NewGlue()
+	g.SetContext(app)
+	initHandlers(g, wsHub)
+	g.Router.NotFound = helpCenterHostNotFound(app, g)
+
+	// Buffers above this are dropped rather than reused, and the ones we keep stay with the connection until it closes.
+	fasthttp.SetBodySizePoolLimit(64<<10, 128<<10) // request: 64 KiB, response: 128 KiB
+
+	s := &fasthttp.Server{
+		Name:                 appName,
+		ReadTimeout:          ko.MustDuration("app.server.read_timeout"),
+		WriteTimeout:         ko.MustDuration("app.server.write_timeout"),
+		MaxRequestBodySize:   ko.MustInt("app.server.max_body_size"),
+		MaxKeepaliveDuration: ko.MustDuration("app.server.keepalive_timeout"),
+		ReadBufferSize:       ko.Int("app.server.read_buffer_size"),
+	}
+
+	go func() {
+		lo.Info("server starting", "address", ko.String("app.server.address"))
+		if ko.String("app.server.socket") != "" {
+			lo.Info("server using Unix socket", "socket", ko.String("app.server.socket"))
+		}
+		if err := g.ListenAndServe(ko.String("app.server.address"), ko.String("app.server.socket"), s); err != nil {
+			lo.Fatal("error starting server", "error", err)
+		}
+	}()
+
+	// Start the app update checker.
+	if ko.Bool("app.check_updates") {
+		go checkUpdates(versionString, time.Hour*1, app)
+	}
+
+	// Wait for shutdown signal.
+	<-ctx.Done()
+	closedAgentConns := wsHub.CloseAll()
+	closedLiveChatInboxes := inbox.CloseLiveChatClients()
+	lo.Info("realtime connections closed", "agent_connections", closedAgentConns, "livechat_inboxes", closedLiveChatInboxes)
+	lo.Info("shutting down HTTP server")
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), serverShutdownTimeout)
+	if err := s.ShutdownWithContext(shutdownCtx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			lo.Warn("HTTP server drain timed out, exiting with connections still open", "timeout", serverShutdownTimeout, "error", err)
+		} else {
+			lo.Error("error shutting down HTTP server", "error", err)
+		}
+	}
+	cancelShutdown()
+	if ing := app.ingester(); ing != nil {
+		lo.Info("shutting down whatsapp ingester")
+		ing.Close()
+	}
+	lo.Info("shutting down AI agent")
+	aiAgent.Close()
+	lo.Info("shutting down AI")
+	ai.Close()
+	lo.Info("shutting down inboxes")
+	inbox.Close()
+	lo.Info("shutting down automation")
+	automation.Close()
+	lo.Info("shutting down autoassigner")
+	autoassigner.Close()
+	lo.Info("shutting down notifier")
+	notifier.Close()
+	lo.Info("shutting down webhook")
+	webhook.Close()
+	lo.Info("shutting down conversation")
+	conversation.Close()
+	lo.Info("shutting down SLA")
+	sla.Close()
+	lo.Info("shutting down importer")
+	app.importer.Close()
+	lo.Info("shutting down database")
+	db.Close()
+	lo.Info("shutting down redis")
+	rdb.Close()
+	lo.Info("shutdown complete")
+}
+
+// onUsersOffline returns a callback for MonitorUserAvailability that broadcasts
+// offline status to the appropriate clients based on user type.
+func onUsersOffline(conv *conversation.Manager) func([]umodels.OfflineUser) {
+	return func(users []umodels.OfflineUser) {
+		for _, u := range users {
+			switch u.Type {
+			case umodels.UserTypeAgent:
+				conv.BroadcastAgentAvailability(u.ID, umodels.Offline)
+			case umodels.UserTypeContact, umodels.UserTypeVisitor:
+				conv.BroadcastContactUpdate(u.ID, map[string]any{"availability_status": umodels.Offline})
+			}
+		}
+	}
+}

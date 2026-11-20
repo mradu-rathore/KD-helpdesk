@@ -1,0 +1,239 @@
+package main
+
+import (
+	"encoding/json"
+	"strconv"
+
+	"github.com/abhinavxd/libredesk/internal/envelope"
+	"github.com/abhinavxd/libredesk/internal/stringutil"
+	"github.com/valyala/fasthttp"
+	"github.com/zerodha/fastglue"
+)
+
+type csatResponse struct {
+	Rating   int    `json:"rating"`
+	Feedback string `json:"feedback"`
+}
+
+const (
+	maxCsatFeedbackLength = 1000
+	maxCsatMetaKeys       = 100
+	maxCsatMetaKeyLength  = 100
+	maxCsatMetaValLength  = 1000
+)
+
+// handleShowCSAT renders the CSAT page for a given csat.
+func handleShowCSAT(r *fastglue.Request) error {
+	var (
+		app  = r.Context.(*App)
+		uuid = r.RequestCtx.UserValue("uuid").(string)
+	)
+
+	csat, err := app.csat.Get(uuid)
+	if err != nil {
+		return renderCSATPage(r, "error", map[string]interface{}{
+			"Data": map[string]interface{}{
+				"ErrorMessage": app.i18n.T("globals.messages.pageNotFound"),
+			},
+		})
+	}
+
+	if csat.ResponseTimestamp.Valid {
+		return renderCSATPage(r, "info", map[string]interface{}{
+			"Data": map[string]interface{}{
+				"Title":   app.i18n.T("globals.messages.thankYou"),
+				"Message": app.i18n.T("csat.thankYouMessage"),
+			},
+		})
+	}
+
+	conversation, err := app.conversation.GetConversation(csat.ConversationID, "", "")
+	if err != nil {
+		return renderCSATPage(r, "error", map[string]interface{}{
+			"Data": map[string]interface{}{
+				"ErrorMessage": app.i18n.T("globals.messages.pageNotFound"),
+			},
+		})
+	}
+
+	return renderCSATPage(r, "csat", map[string]interface{}{
+		"Data": map[string]interface{}{
+			"Title": app.i18n.T("csat.pageTitle"),
+			"CSAT": map[string]interface{}{
+				"UUID": csat.UUID,
+			},
+			"Conversation": map[string]interface{}{
+				"Subject":         conversation.Subject.String,
+				"ReferenceNumber": conversation.ReferenceNumber,
+			},
+		},
+	})
+}
+
+// handleUpdateCSATResponse updates the CSAT response for a given csat.
+func handleUpdateCSATResponse(r *fastglue.Request) error {
+	var (
+		app  = r.Context.(*App)
+		uuid = r.RequestCtx.UserValue("uuid").(string)
+	)
+
+	rating, feedback, metaJSON, errKey := validateCSATForm(r)
+	if errKey != "" {
+		return renderCSATPage(r, "error", map[string]interface{}{
+			"Data": map[string]interface{}{
+				"ErrorMessage": app.i18n.T(errKey),
+			},
+		})
+	}
+
+	if err := app.conversation.UpdateCSATResponse(uuid, rating, feedback, metaJSON); err != nil {
+		// Surface only known, user-safe messages; never leak raw driver errors
+		// (e.g. a malformed UUID triggers a Postgres syntax error string).
+		msg := app.i18n.T("globals.messages.somethingWentWrong")
+		if e, ok := err.(envelope.Error); ok {
+			msg = e.Error()
+		}
+		return renderCSATPage(r, "error", map[string]interface{}{
+			"Data": map[string]interface{}{
+				"ErrorMessage": msg,
+			},
+		})
+	}
+
+	return renderCSATPage(r, "info", map[string]interface{}{
+		"Data": map[string]interface{}{
+			"Title":   app.i18n.T("globals.messages.thankYou"),
+			"Message": app.i18n.T("csat.thankYouMessage"),
+		},
+	})
+}
+
+// handleShowCSATWidget renders a minimal CSAT widget page (just stars) for iframe embedding.
+func handleShowCSATWidget(r *fastglue.Request) error {
+	var (
+		app  = r.Context.(*App)
+		uuid = r.RequestCtx.UserValue("uuid").(string)
+	)
+
+	csat, err := app.csat.Get(uuid)
+	if err != nil {
+		return renderCSATPage(r, "error", map[string]interface{}{
+			"Data": map[string]interface{}{
+				"ErrorMessage": app.i18n.T("globals.messages.pageNotFound"),
+			},
+		})
+	}
+
+	return renderCSATPage(r, "csat-widget", map[string]interface{}{
+		"Data": map[string]interface{}{
+			"CSAT": map[string]interface{}{
+				"UUID":      csat.UUID,
+				"Responded": csat.ResponseTimestamp.Valid,
+			},
+		},
+	})
+}
+
+// handleSubmitCSATResponse handles CSAT response submission from the widget API.
+func handleSubmitCSATResponse(r *fastglue.Request) error {
+	var (
+		app  = r.Context.(*App)
+		uuid = r.RequestCtx.UserValue("uuid").(string)
+		req  = csatResponse{}
+	)
+
+	if err := r.Decode(&req, "json"); err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid JSON", nil, envelope.InputError)
+	}
+
+	if req.Rating < 0 || req.Rating > 5 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Rating must be between 0 and 5 (0 means no rating)", nil, envelope.InputError)
+	}
+
+	// At least one of rating or feedback must be provided
+	if req.Rating == 0 && req.Feedback == "" {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Either rating or feedback must be provided", nil, envelope.InputError)
+	}
+
+	if uuid == "" {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid UUID", nil, envelope.InputError)
+	}
+
+	req.Feedback = truncateFeedback(req.Feedback)
+
+	if err := app.conversation.UpdateCSATResponse(uuid, req.Rating, req.Feedback, nil /** meta **/); err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	return r.SendEnvelope(true)
+}
+
+// validateCSATForm parses and validates the CSAT form submission.
+// Returns rating (0 if not provided), trimmed feedback, meta JSON, and error message key if invalid.
+func validateCSATForm(r *fastglue.Request) (int, string, json.RawMessage, string) {
+	var (
+		feedback = string(r.RequestCtx.FormValue("feedback"))
+		rating   int
+	)
+
+	// Rating is optional (0 = not provided). If provided, must be 1-5.
+	if rs := string(r.RequestCtx.FormValue("rating")); rs != "" {
+		v, err := strconv.Atoi(rs)
+		if err != nil || v < 1 || v > 5 {
+			return 0, "", nil, "globals.messages.somethingWentWrong"
+		}
+		rating = v
+	}
+
+	// At least one of rating or feedback must be provided.
+	if rating == 0 && feedback == "" {
+		return 0, "", nil, "csat.pleaseFillRequired"
+	}
+
+	feedback = truncateFeedback(feedback)
+
+	// Collect extra form fields into meta, skipping the known fields.
+	meta := make(map[string]string)
+	r.RequestCtx.PostArgs().VisitAll(func(key, value []byte) {
+		k := string(key)
+		if k == "rating" || k == "feedback" {
+			return
+		}
+		if len(meta) >= maxCsatMetaKeys {
+			return
+		}
+		k = stringutil.TruncateUTF8(k, maxCsatMetaKeyLength)
+		v := string(value)
+		v = stringutil.TruncateUTF8(v, maxCsatMetaValLength)
+		meta[k] = v
+	})
+
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		app := r.Context.(*App)
+		app.lo.Error("error marshalling CSAT meta", "error", err)
+		metaJSON = []byte(`{}`)
+	}
+
+	return rating, feedback, metaJSON, ""
+}
+
+func truncateFeedback(s string) string {
+	if len(s) <= maxCsatFeedbackLength {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= maxCsatFeedbackLength {
+		return s
+	}
+	return string(r[:maxCsatFeedbackLength])
+}
+
+func renderCSATPage(r *fastglue.Request, name string, data map[string]any) error {
+	app := r.Context.(*App)
+	if err := app.tmpl.RenderWebPage(r.RequestCtx, name, data); err != nil {
+		app.lo.Error("error rendering CSAT page", "template", name, "error", err)
+		return err
+	}
+	return nil
+}

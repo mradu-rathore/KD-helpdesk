@@ -1,0 +1,357 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mime"
+	"net/http"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"slices"
+
+	"github.com/abhinavxd/libredesk/internal/attachment"
+	amodels "github.com/abhinavxd/libredesk/internal/auth/models"
+	"github.com/abhinavxd/libredesk/internal/envelope"
+	"github.com/abhinavxd/libredesk/internal/image"
+	mmodels "github.com/abhinavxd/libredesk/internal/media/models"
+	"github.com/abhinavxd/libredesk/internal/stringutil"
+	"github.com/google/uuid"
+	"github.com/valyala/fasthttp"
+	"github.com/volatiletech/null/v9"
+	"github.com/zerodha/fastglue"
+)
+
+// immutable suppresses revalidation, so this is how long a revoked file stays reachable from a client cache.
+const mediaCacheTTL = 24 * time.Hour
+
+type preparedImageUpload struct {
+	thumbnail    *bytes.Reader
+	meta         []byte
+	thumbnailErr error
+}
+
+// handleMediaUpload handles media uploads.
+func handleMediaUpload(r *fastglue.Request) error {
+	var (
+		app     = r.Context.(*App)
+		cleanUp = false
+		auser   = r.RequestCtx.UserValue("user").(amodels.User)
+	)
+
+	form, err := r.RequestCtx.MultipartForm()
+	if err != nil {
+		app.lo.Error("error parsing form data.", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("errors.parsingRequest"), nil, envelope.GeneralError)
+	}
+
+	files, ok := form.File["files"]
+	if !ok || len(files) == 0 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("validation.notFoundFile"), nil, envelope.InputError)
+	}
+
+	fileHeader := files[0]
+	file, err := fileHeader.Open()
+	if err != nil {
+		app.lo.Error("error reading uploaded file", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
+	}
+	defer file.Close()
+
+	// Inline?
+	var disposition = null.StringFrom(attachment.DispositionAttachment)
+	inline, ok := form.Value["inline"]
+	if ok && len(inline) > 0 && inline[0] == "true" {
+		disposition = null.StringFrom(attachment.DispositionInline)
+	}
+
+	// Linked model?
+	var linkedModel string
+	model, ok := form.Value["linked_model"]
+	if ok && len(model) > 0 {
+		linkedModel = model[0]
+	}
+
+	// Only agents who manage the help center may upload publicly served media.
+	if mmodels.IsPublicModel(linkedModel) {
+		auser := r.RequestCtx.UserValue("user").(amodels.User)
+		agent, err := app.user.GetAgentCachedOrLoad(auser.ID)
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+		allowed, err := app.authz.Enforce(agent, "help_center", "manage")
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+		if !allowed {
+			return r.SendErrorEnvelope(fasthttp.StatusForbidden, app.i18n.T("status.deniedPermission"), nil, envelope.PermissionError)
+		}
+	}
+
+	// Sanitize filename.
+	srcFileName := stringutil.SanitizeFilename(fileHeader.Filename)
+	srcContentType := fileHeader.Header.Get("Content-Type")
+	srcFileSize := fileHeader.Size
+	srcExt := strings.TrimPrefix(strings.ToLower(filepath.Ext(srcFileName)), ".")
+
+	// Check if file is empty
+	if srcFileSize == 0 {
+		app.lo.Debug("upload rejected: file is empty")
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("media.fileEmpty"), nil, envelope.InputError)
+	}
+
+	// Check file size
+	consts := app.consts.Load().(*constants)
+	if bytesToMegabytes(srcFileSize) > float64(consts.MaxFileUploadSizeMB) {
+		app.lo.Debug("upload rejected: file exceeds size limit", "size_mb", bytesToMegabytes(srcFileSize), "max_allowed_mb", consts.MaxFileUploadSizeMB)
+		return r.SendErrorEnvelope(
+			fasthttp.StatusRequestEntityTooLarge,
+			app.i18n.Ts("media.fileSizeTooLarge", "size", fmt.Sprintf("%dMB", consts.MaxFileUploadSizeMB)),
+			nil,
+			envelope.GeneralError,
+		)
+	}
+
+	if !slices.Contains(consts.AllowedUploadFileExtensions, "*") && !slices.Contains(consts.AllowedUploadFileExtensions, srcExt) {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("media.fileTypeNotAllowed"), nil, envelope.InputError)
+	}
+
+	// Delete files on any error.
+	var uuid = uuid.New()
+	thumbName := image.ThumbPrefix + uuid.String()
+	defer func() {
+		if cleanUp {
+			app.media.Delete(uuid.String())
+			app.media.Delete(thumbName)
+		}
+	}()
+
+	// Generate and upload thumbnail and store image dimensions in the media meta.
+	var meta = []byte("{}")
+	if slices.Contains(image.Exts, srcExt) && image.IsImageByContent(file) {
+		prepared, err := prepareImageUpload(file)
+		if err != nil {
+			app.lo.Warn("skipping thumbnail and dimensions, unsupported image format", "error", err)
+		} else {
+			if prepared.thumbnailErr != nil {
+				app.lo.Warn("skipping thumbnail, unsupported image format", "error", prepared.thumbnailErr)
+			} else {
+				// A failed upload returns an empty name, keep the original so cleanup can delete a partial file.
+				uploadedThumb, _, err := app.media.Upload(thumbName, srcContentType, prepared.thumbnail)
+				if err != nil {
+					cleanUp = true
+					return sendErrorEnvelope(r, err)
+				}
+				thumbName = uploadedThumb
+			}
+			meta = prepared.meta
+		}
+	}
+
+	// Reset ptr.
+	file.Seek(0, 0)
+
+	// Override content type after upload (in case it was detected incorrectly).
+	_, srcContentType, err = app.media.Upload(uuid.String(), srcContentType, file)
+	if err != nil {
+		cleanUp = true
+		app.lo.Error("error uploading file", "error", err)
+		return sendErrorEnvelope(r, err)
+	}
+
+	// Insert in DB.
+	media, err := app.media.Insert(disposition, srcFileName, srcContentType, "" /**content_id**/, null.NewString(linkedModel, linkedModel != ""), uuid.String(), null.Int{} /**model_id**/, int(srcFileSize), meta, !mmodels.IsPublicModel(linkedModel), null.IntFrom(auser.ID))
+	if err != nil {
+		cleanUp = true
+		app.lo.Error("error inserting metadata into database", "error", err)
+		return sendErrorEnvelope(r, err)
+	}
+	return r.SendEnvelope(media)
+}
+
+// handleServeMedia serves uploaded media.
+// Supports public media (no checks), authenticated access (with permission checks) and signed URL access (no permission checks).
+func handleServeMedia(r *fastglue.Request) error {
+	var (
+		app        = r.Context.(*App)
+		uuid       = r.RequestCtx.UserValue("uuid").(string)
+		authMethod = r.RequestCtx.UserValue("auth_method")
+	)
+
+	media, err := getMediaByUUID(app, uuid)
+	if err != nil {
+		// Anonymous probes must not distinguish missing media from existing private media.
+		if authMethod == authMethodPublic {
+			return r.SendErrorEnvelope(http.StatusUnauthorized, app.i18n.T("auth.invalidOrExpiredSession"), nil, envelope.UnauthorizedError)
+		}
+		return sendErrorEnvelope(r, err)
+	}
+
+	// Public serve as is.
+	if !media.Private {
+		return serveMediaFile(r, app, uuid, &media)
+	}
+
+	// If accessed via signed URL, skip permission checks and serve file directly.
+	if authMethod == authMethodSignedURL {
+		return serveMediaFile(r, app, uuid, &media)
+	}
+
+	// Unauthenticated and not a signed URL - private media requires auth.
+	auser, ok := r.RequestCtx.UserValue("user").(amodels.User)
+	if !ok {
+		return r.SendErrorEnvelope(http.StatusUnauthorized, app.i18n.T("auth.invalidOrExpiredSession"), nil, envelope.UnauthorizedError)
+	}
+
+	// Session/API key authenticated - perform full permission check.
+	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	if media.ModelID.Int <= 0 && !media.UploadedByUser(auser.ID) {
+		return r.SendErrorEnvelope(http.StatusForbidden, app.i18n.T("status.deniedPermission"), nil, envelope.PermissionError)
+	}
+
+	// Check if the user has permission to access the linked model.
+	allowed, err := app.authz.EnforceMediaAccess(user, media.Model.String)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	// For messages, check access to the conversation this message is part of.
+	// Skip if model_id is not set (media uploaded but not yet attached to a message).
+	if media.Model.String == mmodels.ModelMessages && media.ModelID.Int > 0 {
+		conversation, err := app.conversation.GetConversationByMessageID(media.ModelID.Int)
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+		allowed, err = app.authz.EnforceConversationAccess(user, conversation)
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+	}
+
+	if !allowed {
+		return r.SendErrorEnvelope(http.StatusUnauthorized, app.i18n.T("status.deniedPermission"), nil, envelope.UnauthorizedError)
+	}
+
+	return serveMediaFile(r, app, uuid, &media)
+}
+
+// serveMediaFile serves the actual file content based on the storage provider.
+// If media is nil, it will be fetched from DB.
+func serveMediaFile(r *fastglue.Request, app *App, uuid string, media *mmodels.Media) error {
+	// Fetch media metadata from DB if not provided.
+	if media == nil {
+		m, err := getMediaByUUID(app, uuid)
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+		media = &m
+	}
+
+	forceDownload := string(r.RequestCtx.QueryArgs().Peek("download")) == "1"
+
+	consts := app.consts.Load().(*constants)
+	switch consts.UploadProvider {
+	case "fs":
+		// Older rows hold content types exactly as the client sent them.
+		contentType := mmodels.NormalizeContentType(media.ContentType)
+		disposition := mmodels.ContentDisposition(contentType)
+		if forceDownload {
+			disposition = mmodels.DispositionAttachment
+		}
+
+		r.RequestCtx.Response.Header.Set("Content-Type", contentType)
+		r.RequestCtx.Response.Header.Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": media.Filename}))
+		r.RequestCtx.Response.Header.Set("X-Content-Type-Options", "nosniff")
+		// Chrome's video and PDF viewers break in a sandbox, and inline types run no script anyway.
+		// Downloads are sandboxed for webviews that render attachments inline.
+		if disposition == mmodels.DispositionAttachment {
+			r.RequestCtx.Response.Header.Set("Content-Security-Policy", "sandbox")
+		}
+		r.RequestCtx.Response.Header.Set("Cache-Control", fmt.Sprintf("%s, max-age=%d, immutable", cacheVisibility(media.Private), int(mediaCacheTTL.Seconds())))
+
+		fasthttp.ServeFile(r.RequestCtx, filepath.Join(ko.String("upload.fs.upload_path"), uuid))
+	case "s3":
+		url := app.media.GetURL(uuid, media.ContentType, media.Filename)
+		if forceDownload {
+			url = app.media.GetURLForDownload(uuid, media.Filename)
+		}
+		r.RequestCtx.Response.Header.Set("Cache-Control", "no-store")
+		r.RequestCtx.Redirect(url, http.StatusFound)
+	}
+	return nil
+}
+
+// bytesToMegabytes converts bytes to megabytes.
+func bytesToMegabytes(bytes int64) float64 {
+	return float64(bytes) / 1024 / 1024
+}
+
+func getUnassociatedMedia(app *App, ids []int, userID int) ([]mmodels.Media, error) {
+	all, err := app.media.GetMany(ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mmodels.Media, 0, len(all))
+	seen := make(map[int]bool, len(all))
+	for _, m := range all {
+		if !m.UploadedByUser(userID) || (m.Model.String != "" && m.Model.String != mmodels.ModelMessages) {
+			return nil, envelope.NewError(envelope.PermissionError, app.i18n.T("status.deniedPermission"), nil)
+		}
+		if seen[m.ID] {
+			continue
+		}
+		seen[m.ID] = true
+		if m.ModelID.Int > 0 {
+			app.lo.Warn("attachment already associated with another model, skipping", "media_id", m.ID, "model", m.Model.String, "model_id", m.ModelID.Int)
+			continue
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// getMediaByUUID fetches media metadata from DB, handling thumbnail prefix.
+func getMediaByUUID(app *App, mediaUUID string) (mmodels.Media, error) {
+	mediaUUID = strings.TrimPrefix(mediaUUID, image.ThumbPrefix)
+	if _, err := uuid.Parse(mediaUUID); err != nil {
+		return mmodels.Media{}, envelope.NewError(envelope.NotFoundError, app.i18n.T("globals.messages.notFound"), nil)
+	}
+	return app.media.Get(0, mediaUUID)
+}
+
+func cacheVisibility(private bool) string {
+	if private {
+		return "private"
+	}
+	return "public"
+}
+
+func prepareImageUpload(file io.ReadSeeker) (preparedImageUpload, error) {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return preparedImageUpload{}, err
+	}
+	thumbnail, thumbnailErr := image.CreateThumb(image.DefThumbSize, file)
+
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return preparedImageUpload{}, err
+	}
+	width, height, err := image.GetDimensions(file)
+	if err != nil {
+		return preparedImageUpload{}, err
+	}
+	meta, err := json.Marshal(map[string]any{
+		"width":  width,
+		"height": height,
+	})
+	if err != nil {
+		return preparedImageUpload{}, err
+	}
+	return preparedImageUpload{thumbnail: thumbnail, meta: meta, thumbnailErr: thumbnailErr}, nil
+}

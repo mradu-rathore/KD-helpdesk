@@ -1,0 +1,187 @@
+// End-to-end journey against a real backend (no API mocking):
+// login -> create email inbox -> create team -> create agent ->
+// create an outgoing conversation -> reply (sent through MailHog).
+//
+// The steps run in order and share state, so the conversation reuses the
+// inbox created earlier in the same spec.
+
+describe('Admin setup and outgoing conversation', () => {
+  const stamp = Date.now()
+  const inboxName = `Cypress Inbox ${stamp}`
+  const fromAddress = `Cypress Support <support+${stamp}@cypress.test>`
+  const teamName = `Cypress Team ${stamp}`
+  const agentFirstName = 'Cypress'
+  const agentEmail = `cypress.agent.${stamp}@example.com`
+  const contactEmail = `cypress.customer.${stamp}@example.com`
+  const subject = `Cypress subject ${stamp}`
+  const replyBody = `Automated reply from Cypress ${stamp}`
+
+  // MailHog captures outgoing mail. IMAP is dummy.
+  const smtpHost = Cypress.env('SMTP_HOST') || '127.0.0.1'
+  const smtpPort = Cypress.env('SMTP_PORT') || '1025'
+  const mailhogUrl = Cypress.env('MAILHOG_URL')
+
+  let conversationUuid
+
+  beforeEach(() => {
+    cy.viewport(1280, 800) // desktop layout so the inbox sidebar (New conversation) is visible
+    cy.login()
+  })
+
+  it('creates an email inbox that sends through MailHog', () => {
+    cy.intercept('POST', '**/api/v1/inboxes').as('createInbox')
+
+    cy.visit('/admin/inboxes/new')
+    cy.contains('Create an email inbox').click()
+    cy.contains('Configure IMAP and SMTP manually').click()
+
+    cy.get('input[name="name"]').type(inboxName)
+    cy.get('input[name="from"]').type(fromAddress)
+
+    cy.get('input[name="imap.username"]').type('cypress')
+    cy.get('input[name="imap.password"]').type('cypress')
+
+    cy.get('input[name="smtp.host"]').clear().type(smtpHost)
+    cy.get('input[name="smtp.port"]').clear().type(smtpPort)
+    cy.get('input[name="smtp.username"]').type('cypress')
+    cy.get('input[name="smtp.password"]').type('cypress')
+    cy.toggleEmailInboxAdvanced('smtp')
+    cy.selectOption('Login', 'None') // SMTP auth protocol -> None (MailHog needs none)
+
+    cy.setEmailInboxSection('imap', false)
+    cy.setEmailInboxSection('smtp', false)
+    cy.get('button[type="submit"]').click()
+    cy.wait('@createInbox').its('response.statusCode').should('eq', 200)
+    cy.location('pathname').should('eq', '/admin/inboxes')
+  })
+
+  it('creates a team', () => {
+    cy.intercept('POST', '**/api/v1/teams').as('createTeam')
+
+    cy.visit('/admin/teams/teams/new')
+
+    cy.contains('label', 'Emoji').click()
+    cy.get('.v3-emoji-picker .v3-emojis button').first().click()
+    cy.get('.v3-emoji-picker').should('not.exist')
+
+    cy.get('input[name="name"]').type(teamName)
+    cy.selectOption('Select an assignment type', 'Round robin')
+    cy.contains('button[role="combobox"]', 'Select timezone').click()
+    cy.get('[role="option"]').first().click()
+
+    cy.contains('button', 'Create').click()
+    cy.wait('@createTeam').its('response.statusCode').should('eq', 200)
+    cy.location('pathname').should('eq', '/admin/teams/teams')
+  })
+
+  it('creates an agent', () => {
+    cy.intercept('POST', '**/api/v1/agents').as('createAgent')
+
+    cy.visit('/admin/teams/agents/new')
+
+    cy.get('input[name="first_name"]').type(agentFirstName)
+    cy.get('input[name="email"]').type(agentEmail)
+
+    cy.get('input[aria-label="Select roles"]').click()
+    cy.get('[role="option"]').contains('Agent').click()
+
+    cy.contains('button', 'Create').click()
+    cy.wait('@createAgent').its('response.statusCode').should('eq', 200)
+    cy.location('pathname').should('eq', '/admin/teams/agents')
+  })
+
+  it('creates an outgoing conversation from the new inbox', () => {
+    cy.intercept('POST', '**/api/v1/conversations').as('createConversation')
+
+    cy.visit('/inboxes/assigned')
+    cy.contains('New conversation').click()
+
+    cy.get('[role="dialog"]').within(() => {
+      cy.get('input[type="email"]').type(contactEmail)
+      cy.get('input[name="first_name"]').type('Cypress')
+      cy.get('input[name="last_name"]').type('Customer')
+      cy.get('input[name="subject"]').type(subject)
+      cy.contains('button[role="combobox"]', 'Select inbox').click()
+    })
+    // Radix Select options render in a portal outside the dialog.
+    cy.get('[role="option"]').contains(inboxName).click()
+
+    cy.get('[role="dialog"]')
+      .find('.tiptap.ProseMirror')
+      .click()
+      .type('Hello, this is an automated outgoing conversation.')
+    cy.get('[role="dialog"]').find('button[type="submit"]:visible').click()
+
+    cy.wait('@createConversation').then(({ response }) => {
+      expect(response.statusCode).to.eq(200)
+      conversationUuid = response.body.data.uuid
+      expect(conversationUuid, 'conversation uuid').to.be.a('string').and.not.be.empty
+    })
+  })
+
+  it('replies to the conversation and the email lands in MailHog', () => {
+    expect(conversationUuid, 'conversation from previous step').to.be.a('string')
+
+    cy.intercept('GET', '**/messages?page=*').as('loadMessages')
+    cy.intercept('POST', `**/api/v1/conversations/${conversationUuid}/messages`).as('sendReply')
+
+    cy.visit(`/inboxes/all/conversation/${conversationUuid}`)
+    // Wait for the thread to load before replying: the recipient (To) is derived from the
+    // latest message, so sending before it loads is rejected with "recipient required".
+    cy.wait('@loadMessages')
+    cy.get('input[placeholder="Email addresses separated by comma"]')
+      .first()
+      .should('not.have.value', '')
+    cy.get('.tiptap.ProseMirror').first().click().type(replyBody)
+    cy.contains('button', /^Send$/).click() // exact: avoid the adjacent "Send and set status" split button
+
+    cy.wait('@sendReply').its('response.statusCode').should('eq', 200)
+    cy.contains(replyBody).should('exist')
+
+    // Outgoing mail is dispatched asynchronously; poll MailHog until it shows up.
+    // Only runs in CI where MAILHOG_URL is set.
+    if (mailhogUrl) {
+      const findInMailHog = (attempt = 0) => {
+        cy.request(`${mailhogUrl}/api/v2/messages`).then((res) => {
+          const delivered = (res.body.items || []).some((m) =>
+            JSON.stringify(m).includes(contactEmail)
+          )
+          if (delivered) return
+          if (attempt >= 15) {
+            throw new Error(`Email to ${contactEmail} not found in MailHog`)
+          }
+          cy.wait(1000)
+          findInMailHog(attempt + 1)
+        })
+      }
+      findInMailHog()
+    }
+  })
+})
+
+describe('Recovering a stale route after deployment', () => {
+  it('reloads a missing route chunk once and opens the requested page', () => {
+    let loads = 0
+    cy.login()
+    cy.viewport(1280, 800)
+    cy.on('window:before:load', () => { loads++ })
+    cy.on('uncaught:exception', (error) => {
+      if (error.message.includes('Failed to fetch dynamically imported module:') &&
+          error.message.includes('/assets/WebhookList-')) return false
+    })
+    cy.intercept({ method: 'GET', url: '**/assets/WebhookList-*.js', times: 1 }, {
+      statusCode: 404, body: '', headers: { 'content-type': 'text/javascript' }
+    }).as('missingRouteChunk')
+    cy.visit('/admin/conversations/tags')
+    cy.contains('button', /^Integrations$/).click()
+    cy.get('a[href="/admin/webhooks"]').first().scrollIntoView()
+    cy.get('a[href="/admin/webhooks"]').first().click()
+    cy.wait('@missingRouteChunk').its('response.statusCode').should('eq', 404)
+    cy.location('pathname').should('eq', '/admin/webhooks')
+    cy.contains('button', 'New webhook').should('be.visible')
+    cy.window().should((win) => {
+      expect(loads).to.eq(2)
+      expect(win.sessionStorage.getItem('libredesk:preload-reload')).to.eq(null)
+    })
+  })
+})
