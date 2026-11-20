@@ -144,12 +144,17 @@
           <FormMessage />
         </FormItem> </FormField
     ></FormGrid>
-    <FormField v-slot="{ field }" name="new_password" v-if="!isNewForm">
+    <!-- KD: a password can be set when creating an agent too, so they can sign in without a welcome email -->
+    <FormField v-slot="{ field }" name="new_password">
       <FormItem class="max-w-xl">
         <FormLabel>{{ t('globals.terms.setPassword') }}</FormLabel>
         <FormControl>
-          <Input type="password" placeholder="" v-bind="field" />
+          <Input type="password" autocomplete="new-password" placeholder="" v-bind="field" />
         </FormControl>
+        <FormDescription v-if="isNewForm">
+          Optional. Give them this password to sign in straight away. At least 10 characters with
+          upper and lower case, a number and a symbol. Leave blank to send a welcome email instead.
+        </FormDescription>
         <FormMessage />
       </FormItem>
     </FormField>
@@ -300,6 +305,7 @@ import { Badge } from '@shared-ui/components/ui/badge/index.js'
 import { Clock, LogIn, Key, RotateCcw, Trash2, Plus, AlertTriangle } from 'lucide-vue-next'
 import {
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,

@@ -15,6 +15,7 @@ import (
 	notifier "github.com/abhinavxd/libredesk/internal/notification"
 	"github.com/abhinavxd/libredesk/internal/stringutil"
 	tmpl "github.com/abhinavxd/libredesk/internal/template"
+	"github.com/abhinavxd/libredesk/internal/user"
 	"github.com/abhinavxd/libredesk/internal/user/models"
 	realip "github.com/ferluci/fast-realip"
 	"github.com/valyala/fasthttp"
@@ -219,9 +220,26 @@ func handleCreateAgent(r *fastglue.Request) error {
 		return sendErrorEnvelope(r, err)
 	}
 
+	// KD: allow setting a password at creation, so new teammates can sign in
+	// without a welcome email. Check strength first so a weak password doesn't
+	// leave a half-created agent behind.
+	if req.NewPassword != "" && !user.IsStrongPassword(req.NewPassword) {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, user.PasswordHint, nil, envelope.InputError)
+	}
+
 	agent, err := app.user.CreateAgent(req.FirstName, req.LastName, req.Email, req.Roles)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
+	}
+
+	if req.NewPassword != "" {
+		if err := app.user.UpdateAgent(agent.ID, agent.FirstName, agent.LastName, agent.Email.String, req.Roles, true, "", req.NewPassword); err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+		auser := r.RequestCtx.UserValue("user").(amodels.User)
+		if err := app.activityLog.PasswordSet(auser.ID, auser.Email, realip.FromRequest(r.RequestCtx), agent.ID, req.Email); err != nil {
+			app.lo.Error("error creating activity log", "error", err)
+		}
 	}
 
 	// Upsert user teams.
