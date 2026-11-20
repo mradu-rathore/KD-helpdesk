@@ -4,10 +4,19 @@
       v-if="isLoading"
       class="conv-progress absolute inset-x-0 top-0 h-0.5 z-50 pointer-events-none"
     />
+    <!-- KD: Zendesk layout - ticket fields | conversation | requester & history -->
+    <div v-if="showContent && panelGroupWidth > 0" class="flex h-full min-h-0 gap-1">
+    <aside
+      v-if="!useDetailsDrawer"
+      class="w-72 shrink-0 overflow-hidden rounded-xl border border-border bg-background"
+      :class="{ 'opacity-60': isDimmed }"
+    >
+      <TicketPropertiesPanel />
+    </aside>
     <ResizablePanelGroup
       v-if="showContent && panelGroupWidth > 0"
       direction="horizontal"
-      class="h-full min-h-0 transition-opacity duration-200"
+      class="h-full min-h-0 min-w-0 flex-1 transition-opacity duration-200"
       :class="{ 'opacity-60': isDimmed }"
       :inert="isDimmed"
       @layout="onLayoutChange"
@@ -47,9 +56,10 @@
         @collapse="onSidebarCollapse"
         @expand="onSidebarExpand"
       >
-        <ConversationSideBar />
+        <ConversationSideBar ticket-fields-elsewhere />
       </ResizablePanel>
     </ResizablePanelGroup>
+    </div>
 
     <Sheet
       v-if="showContent && useDetailsDrawer"
@@ -76,6 +86,7 @@ import { useEmitter } from '@main/composables/useEmitter'
 import { EMITTER_EVENTS } from '@main/constants/emitterEvents.js'
 import Conversation from '@main/features/conversation/Conversation.vue'
 import ConversationSideBar from '@main/features/conversation/sidebar/ConversationSideBar.vue'
+import TicketPropertiesPanel from '@main/features/conversation/sidebar/TicketPropertiesPanel.vue'
 import { Sheet, SheetContent, SheetTitle } from '@shared-ui/components/ui/sheet'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@shared-ui/components/ui/resizable'
 

@@ -224,6 +224,10 @@ import SelectTagCombobox from '@main/components/combobox/SelectTagCombobox.vue'
 import { TAG_ACTION } from '@/constants/conversation'
 import api from '@/api'
 
+// KD: on the Zendesk-style ticket page the ticket fields live in the left panel,
+// so this right sidebar only shows the requester and their history.
+const props = defineProps({ ticketFieldsElsewhere: { type: Boolean, default: false } })
+
 const SIDEBAR_TAB_CLASS = 'h-full rounded-none border-b-2 border-transparent px-0 text-xs font-normal focus-visible:ring-inset focus-visible:ring-offset-0 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none'
 
 const customAttributeStore = useCustomAttributeStore()
@@ -231,14 +235,18 @@ const emitter = useEmitter()
 const conversationStore = useConversationStore()
 const userStore = useUserStore()
 const accordionState = useStorage('conversation-sidebar-accordion', [])
+if (props.ticketFieldsElsewhere && !accordionState.value.length) {
+  // Zendesk shows the requester's history open by default
+  accordionState.value = ['previous_conversations', 'contact_notes', 'contact_attributes']
+}
 const activeTab = useStorage('conversation-sidebar-tab', 'details')
 const copilotPointerOpened = ref(false)
 const { t } = useI18n()
 customAttributeStore.fetchCustomAttributes()
 
 const sections = computed(() => [
-  { id: 'actions', label: t('globals.terms.action', 2) },
-  { id: 'information', label: t('conversation.sidebar.information') },
+  { id: 'actions', label: t('globals.terms.action', 2), visible: !props.ticketFieldsElsewhere },
+  { id: 'information', label: t('conversation.sidebar.information'), visible: !props.ticketFieldsElsewhere },
   {
     id: 'contact_attributes',
     label: t('conversation.sidebar.contactAttributes'),
@@ -255,7 +263,7 @@ const sections = computed(() => [
     visible: !!conversationStore.current?.contact?.id,
     permitted: userStore.can('contact_notes:read')
   },
-  { id: 'previous_conversations', label: t('globals.terms.conversation', 2) }
+  { id: 'previous_conversations', label: props.ticketFieldsElsewhere ? 'Interaction history' : t('globals.terms.conversation', 2) }
 ])
 const sectionOrder = useStorage(
   computed(() => `conversation-sidebar-section-order:${userStore.userID}`),
