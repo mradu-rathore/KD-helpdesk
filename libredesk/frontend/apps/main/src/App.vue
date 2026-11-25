@@ -1,15 +1,7 @@
 <template>
   <div class="flex h-dvh w-full gap-1 bg-canvas p-1 text-foreground">
     <!-- KD: one labelled sidebar (search, notifications, pages, views) -->
-    <KdMainSidebar
-      v-if="!isMobile"
-      :userViews="viewStore.views"
-      :sharedViews="sharedViewStore.sharedViewList"
-      @create-view="createView"
-      @edit-view="editView"
-      @delete-view="deleteView"
-      @create-conversation="openCreateConversation()"
-    />
+    <KdMainSidebar v-if="!isMobile" @create-conversation="openCreateConversation()" />
 
     <!-- Main sidebar that collapses -->
     <div class="flex-1 min-w-0">

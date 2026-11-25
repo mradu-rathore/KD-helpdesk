@@ -7,9 +7,47 @@
   <div class="flex h-full min-h-0 flex-col">
     <!-- Header: view title + count -->
     <div class="flex shrink-0 items-center gap-3 border-b border-border px-4 pb-3 pt-4">
-      <SidebarTrigger class="cursor-pointer" />
-      <div class="min-w-0">
-        <h1 class="truncate text-xl font-semibold" :title="title">{{ title }}</h1>
+      <SidebarTrigger class="cursor-pointer md:hidden" />
+      <div class="min-w-0 flex-1">
+        <!-- KD: the title switches between ticket views (they're no longer in the sidebar) -->
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            class="-ml-1.5 inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-accent"
+          >
+            <h1 class="truncate text-xl font-semibold" :title="title">{{ title }}</h1>
+            <ChevronDown class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" class="w-64">
+            <DropdownMenuItem
+              v-for="v in sharedViewStore.sharedViewList"
+              :key="'s' + v.id"
+              :class="{ 'bg-accent': isCurrentView(v.id) }"
+              @click="router.push({ name: 'view-inbox', params: { viewID: v.id } })"
+            >
+              <span class="flex-1 truncate">{{ v.name }}</span>
+              <span class="text-xs tabular-nums text-muted-foreground">{{ store.sidebarCounts.views?.[v.id] ?? '' }}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              :class="{ 'bg-accent': route.params.type === 'mentioned' }"
+              @click="router.push({ name: 'inbox', params: { type: 'mentioned' } })"
+            >
+              <span class="flex-1 truncate">{{ t('globals.terms.mention', 2) }}</span>
+              <span class="text-xs tabular-nums text-muted-foreground">{{ store.sidebarCounts.mentioned || '' }}</span>
+            </DropdownMenuItem>
+            <template v-if="viewStore.views.length">
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                v-for="v in viewStore.views"
+                :key="'u' + v.id"
+                :class="{ 'bg-accent': isCurrentView(v.id) }"
+                @click="router.push({ name: 'view-inbox', params: { viewID: v.id } })"
+              >
+                <span class="flex-1 truncate">{{ v.name }}</span>
+                <span class="text-xs tabular-nums text-muted-foreground">{{ store.sidebarCounts.views?.[v.id] ?? '' }}</span>
+              </DropdownMenuItem>
+            </template>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <p class="text-xs text-muted-foreground tabular-nums">
           {{ store.conversations.total }} {{ t('globals.terms.conversation', store.conversations.total).toLowerCase() }}
         </p>
@@ -156,6 +194,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@shared-ui/components/ui/dropdown-menu'
 import { SidebarTrigger } from '@shared-ui/components/ui/sidebar'
@@ -197,6 +236,8 @@ const title = computed(() => {
   const key = route.meta?.titleKey
   return key ? t(key, route.meta?.titleCount || 1) : ''
 })
+
+const isCurrentView = (id) => String(route.params.viewID) === String(id)
 
 const rows = computed(() => store.conversationsList)
 const hasSelection = computed(() => store.selectedCount > 0)
