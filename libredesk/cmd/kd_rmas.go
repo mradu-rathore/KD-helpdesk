@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS kd_rmas (
 	created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
 	updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
 	status TEXT NOT NULL DEFAULT 'requested'
-		CHECK (status IN ('requested', 'approved', 'received', 'testing', 'with_supplier', 'resolved', 'rejected')),
+		CHECK (status IN ('requested', 'approved', 'received', 'with_supplier', 'resolved', 'rejected')),
 	outcome TEXT NOT NULL DEFAULT ''
 		CHECK (outcome IN ('', 'replaced', 'repaired', 'credited', 'returned_nff')),
 	source TEXT NOT NULL DEFAULT 'agent' CHECK (source IN ('agent', 'form')),
@@ -92,8 +92,7 @@ var (
 	kdRmaStatusLabels = map[string]string{
 		"requested":     "Requested",
 		"approved":      "Approved",
-		"received":      "Received",
-		"testing":       "Testing",
+		"received":      "Received", // goods in, being checked (the test result is a field)
 		"with_supplier": "With supplier",
 		"resolved":      "Resolved",
 		"rejected":      "Rejected",
@@ -840,9 +839,9 @@ func handleKDSetRmaStatus(r *fastglue.Request) error {
 	}
 	if _, err := tx.Exec(`
 		UPDATE kd_rmas SET status = $2, outcome = $3, updated_at = NOW(),
-			approved_at = CASE WHEN $2 IN ('approved', 'received', 'testing', 'with_supplier', 'resolved')
+			approved_at = CASE WHEN $2 IN ('approved', 'received', 'with_supplier', 'resolved')
 				THEN COALESCE(approved_at, NOW()) ELSE approved_at END,
-			received_at = CASE WHEN $2 IN ('received', 'testing', 'with_supplier')
+			received_at = CASE WHEN $2 IN ('received', 'with_supplier')
 				THEN COALESCE(received_at, NOW()) ELSE received_at END,
 			sent_to_supplier_at = CASE WHEN $2 = 'with_supplier'
 				THEN COALESCE(sent_to_supplier_at, NOW()) ELSE sent_to_supplier_at END,

@@ -4,14 +4,14 @@
 export const RMA_STEPS = [
   { key: 'requested', label: 'Requested', hint: 'Check the invoice and warranty', badge: 'bg-amber-400 text-black', dateField: 'created_at' },
   { key: 'approved', label: 'Approved', hint: 'Waiting for the goods', badge: 'bg-sky-600 text-white', dateField: 'approved_at' },
-  { key: 'received', label: 'Received', hint: 'Goods are in', badge: 'bg-violet-600 text-white', dateField: 'received_at' },
-  { key: 'testing', label: 'Testing', hint: 'Being checked', badge: 'bg-indigo-600 text-white', dateField: null },
+  // Goods are in and being checked; what the check found goes in "Test result".
+  { key: 'received', label: 'Received', hint: 'Goods in, being checked', badge: 'bg-violet-600 text-white', dateField: 'received_at' },
   { key: 'with_supplier', label: 'With supplier', hint: 'Sent back to the manufacturer', badge: 'bg-orange-500 text-white', dateField: 'sent_to_supplier_at', optional: true },
   { key: 'resolved', label: 'Resolved', hint: 'Credited, replaced, repaired or returned', badge: 'bg-emerald-600 text-white', dateField: 'resolved_at' }
 ]
 export const RMA_REJECTED = { key: 'rejected', label: 'Rejected', hint: 'Not accepted', badge: 'bg-zinc-600 text-white', dateField: 'resolved_at' }
 export const RMA_STATUSES = [...RMA_STEPS, RMA_REJECTED]
-export const OPEN_STATUSES = ['requested', 'approved', 'received', 'testing', 'with_supplier']
+export const OPEN_STATUSES = ['requested', 'approved', 'received', 'with_supplier']
 
 export const rmaStatus = (key) =>
   RMA_STATUSES.find((s) => s.key === key) || { key, label: key, badge: 'bg-zinc-500 text-white' }
@@ -20,8 +20,7 @@ export const rmaStatus = (key) =>
 export const RMA_NEXT = {
   requested: { to: 'approved', label: 'Approve' },
   approved: { to: 'received', label: 'Mark received' },
-  received: { to: 'testing', label: 'Start testing' },
-  testing: { to: 'resolved', label: 'Resolve' },
+  received: { to: 'resolved', label: 'Resolve' },
   with_supplier: { to: 'resolved', label: 'Resolve' }
 }
 

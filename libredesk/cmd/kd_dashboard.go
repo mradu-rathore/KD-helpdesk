@@ -181,7 +181,7 @@ func kdDashboardRmas(app *App, days int) (map[string]any, error) {
 		SELECT status AS name, COUNT(*) AS count FROM kd_rmas
 		WHERE status NOT IN ('resolved', 'rejected')
 		GROUP BY status
-		ORDER BY array_position(ARRAY['requested', 'approved', 'received', 'testing', 'with_supplier'], status)`); err != nil {
+		ORDER BY array_position(ARRAY['requested', 'approved', 'received', 'with_supplier'], status)`); err != nil {
 		return nil, err
 	}
 

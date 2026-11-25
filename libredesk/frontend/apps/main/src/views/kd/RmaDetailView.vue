@@ -29,7 +29,7 @@
           Reject
         </Button>
         <Button
-          v-if="['received', 'testing'].includes(rma.status)"
+          v-if="rma.status === 'received'"
           variant="outline"
           size="sm"
           class="h-8"
@@ -85,7 +85,7 @@
           <p class="text-muted-foreground">{{ rejectReason || 'No reason recorded.' }}</p>
         </div>
       </div>
-      <ol v-else class="grid grid-cols-3 gap-y-3 rounded-lg border border-border px-2 py-4 sm:grid-cols-6" aria-label="RMA progress">
+      <ol v-else class="grid grid-cols-3 gap-y-3 rounded-lg border border-border px-2 py-4 sm:grid-cols-5" aria-label="RMA progress">
         <li v-for="(step, i) in steps" :key="step.key" class="relative flex flex-col items-center px-1 text-center">
           <span v-if="i > 0" class="absolute right-1/2 top-3 hidden h-px w-full sm:block" :class="step.state === 'upcoming' || step.state === 'skipped' ? 'bg-border' : 'bg-foreground/60'" />
           <span
@@ -463,7 +463,7 @@ async function reload () {
 
 // ---- Steps ----
 const next = computed(() => RMA_NEXT[rma.value?.status])
-const reopenTo = computed(() => (rma.value?.status === 'rejected' ? 'requested' : 'testing'))
+const reopenTo = computed(() => (rma.value?.status === 'rejected' ? 'requested' : 'received'))
 
 async function moveTo (status, { outcome = '', note = '', fields = {} } = {}) {
   // Save typed changes (and the outcome's reference number) first, so nothing is lost.
