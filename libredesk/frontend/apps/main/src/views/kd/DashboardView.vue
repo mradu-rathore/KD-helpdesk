@@ -2,18 +2,11 @@
 <template>
   <KdPage title="Dashboard" :subtitle="updatedLabel">
     <template #actions>
-      <div class="inline-flex rounded-md border border-border p-0.5">
-        <button
-          v-for="d in RANGES"
-          :key="d"
-          type="button"
-          class="rounded px-2.5 py-1 text-xs transition-colors"
-          :class="days === d ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'"
-          @click="days = d"
-        >
-          {{ d }} days
-        </button>
-      </div>
+      <Tabs :model-value="String(days)" @update:model-value="days = Number($event)">
+        <TabsList class="h-8">
+          <TabsTrigger v-for="d in RANGES" :key="d" :value="String(d)" class="px-2.5 text-xs">{{ d }} days</TabsTrigger>
+        </TabsList>
+      </Tabs>
       <Button variant="outline" size="sm" class="h-8" :disabled="refreshing" @click="reload">
         <RefreshCw class="mr-1 size-3.5" :class="{ 'animate-spin': refreshing }" /> Refresh
       </Button>
@@ -182,6 +175,7 @@ import { format, formatDistanceToNowStrict } from 'date-fns'
 import { RefreshCw } from 'lucide-vue-next'
 import { Button } from '@shared-ui/components/ui/button'
 import { Skeleton } from '@shared-ui/components/ui/skeleton'
+import { Tabs, TabsList, TabsTrigger } from '@shared-ui/components/ui/tabs'
 import { Avatar, AvatarFallback, AvatarImage } from '@shared-ui/components/ui/avatar'
 import KdPage from '@main/components/layout/KdPage.vue'
 import { useCachedResource } from '@main/composables/useCachedResource'

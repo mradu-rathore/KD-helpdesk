@@ -8,34 +8,22 @@
         placeholder="Search RMA, serial, invoice"
         clear-label="Clear search"
       />
-      <select v-model="brand" :class="[SELECT_CLASS, 'h-8 w-28']" aria-label="Brand">
-        <option value="">All brands</option>
-        <option v-for="b in RMA_BRANDS" :key="b" :value="b">{{ b }}</option>
-      </select>
+      <KdSelect
+        v-model="brand"
+        :options="brandOptions"
+        none-label="All brands"
+        :none-muted="false"
+        size="sm"
+        trigger-class="w-32"
+        aria-label="Brand"
+      />
       <Button v-if="canWrite" size="sm" class="h-8" @click="showNew = true">
         <Plus class="mr-1 size-4" /> New RMA
       </Button>
     </template>
 
-    <!-- Status tabs (same look as the customer page's tabs) -->
-    <div class="border-b border-border px-3">
-      <div class="flex gap-1 overflow-x-auto [scrollbar-width:none]" role="tablist">
-        <button
-          v-for="tab in tabs"
-          :key="tab.key"
-          type="button"
-          role="tab"
-          :aria-selected="status === tab.key"
-          class="shrink-0 px-2.5 py-2 text-sm transition-colors"
-          :class="status === tab.key
-            ? 'font-medium text-foreground shadow-[inset_0_-2px_0_0_currentColor]'
-            : 'text-muted-foreground hover:text-foreground'"
-          @click="status = tab.key"
-        >
-          {{ tab.label }}
-          <span class="ml-1 rounded bg-muted px-1.5 text-xs tabular-nums">{{ tab.count }}</span>
-        </button>
-      </div>
+    <div class="border-b border-border px-5">
+      <KdTabs v-model="status" :tabs="tabs" />
     </div>
 
     <table class="w-full text-sm">
@@ -130,6 +118,8 @@ import SearchInput from '@shared-ui/components/SearchInput.vue'
 import { formatFullTimestamp } from '@shared-ui/utils/datetime.js'
 import KdPage from '@main/components/layout/KdPage.vue'
 import RmaFormDialog from '@/features/rma/RmaFormDialog.vue'
+import KdSelect from '@main/components/kd/KdSelect.vue'
+import KdTabs from '@main/components/kd/KdTabs.vue'
 import { useCachedResource } from '@main/composables/useCachedResource'
 import { useUserStore } from '@main/stores/user'
 import {
@@ -137,7 +127,6 @@ import {
   OPEN_STATUSES,
   RMA_BRANDS,
   RMA_STATUSES,
-  SELECT_CLASS,
   outcomeLabel,
   rmaLine,
   rmaStatus,
@@ -160,6 +149,7 @@ const status = useStorage('kd_rmas_status', 'open')
 const brand = useStorage('kd_rmas_brand', '')
 const page = ref(1)
 const showNew = ref(false)
+const brandOptions = RMA_BRANDS.map((b) => ({ value: b, label: b }))
 
 watch([debouncedTerm, status, brand], () => (page.value = 1))
 

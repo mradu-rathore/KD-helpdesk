@@ -115,8 +115,14 @@
             <div class="grid gap-3 sm:grid-cols-[9rem_1fr_5rem]">
               <div>
                 <label for="rma-brand" :class="LABEL">Brand</label>
-                <Input id="rma-brand" v-model="form.brand" list="rma-brands" :disabled="!canWrite" @change="suggestSupplier" />
-                <datalist id="rma-brands"><option v-for="b in RMA_BRANDS" :key="b" :value="b" /></datalist>
+                <KdSuggestCombobox
+                  id="rma-brand"
+                  :model-value="form.brand"
+                  :suggestions="RMA_BRANDS"
+                  placeholder="Select brand"
+                  :disabled="!canWrite"
+                  @update:model-value="setBrand"
+                />
               </div>
               <div>
                 <label for="rma-product" :class="LABEL">Product (model or code)</label>
@@ -151,15 +157,12 @@
               </div>
               <div>
                 <label for="rma-date" :class="LABEL">Purchase date</label>
-                <Input id="rma-date" v-model="form.purchase_date" type="date" :max="today" :disabled="!canWrite" />
+                <KdDatePicker id="rma-date" v-model="form.purchase_date" :max="today" placeholder="Not known" :disabled="!canWrite" />
                 <p v-if="boughtAgo" class="mt-1 text-xs text-muted-foreground">Bought {{ boughtAgo }}</p>
               </div>
               <div>
                 <label for="rma-warranty" :class="LABEL">Warranty</label>
-                <select id="rma-warranty" v-model="form.warranty" :class="[SELECT_CLASS, 'w-full']" :disabled="!canWrite">
-                  <option value="">Not checked yet</option>
-                  <option v-for="w in RMA_WARRANTY" :key="w.key" :value="w.key">{{ w.label }}</option>
-                </select>
+                <KdSelect id="rma-warranty" v-model="form.warranty" :options="warrantyOptions" none-label="Not checked yet" :disabled="!canWrite" />
               </div>
             </div>
           </section>
@@ -169,10 +172,7 @@
             <div class="grid gap-3 sm:grid-cols-2">
               <div>
                 <label for="rma-test" :class="LABEL">Test result</label>
-                <select id="rma-test" v-model="form.test_result" :class="[SELECT_CLASS, 'w-full']" :disabled="!canWrite">
-                  <option value="">Not tested yet</option>
-                  <option v-for="o in RMA_TEST_RESULTS" :key="o.key" :value="o.key">{{ o.label }}</option>
-                </select>
+                <KdSelect id="rma-test" v-model="form.test_result" :options="testOptions" none-label="Not tested yet" :disabled="!canWrite" />
               </div>
               <div>
                 <label for="rma-tracking" :class="LABEL">Return tracking no.</label>
@@ -339,6 +339,9 @@ import KdPage from '@main/components/layout/KdPage.vue'
 import SelectAgentCombobox from '@main/components/combobox/SelectAgentCombobox.vue'
 import CustomerPicker from '@/features/customer/CustomerPicker.vue'
 import RmaStepDialog from '@/features/rma/RmaStepDialog.vue'
+import KdSelect from '@main/components/kd/KdSelect.vue'
+import KdDatePicker from '@main/components/kd/KdDatePicker.vue'
+import KdSuggestCombobox from '@main/components/kd/KdSuggestCombobox.vue'
 import { useCachedResource, invalidateCached } from '@main/composables/useCachedResource'
 import { useOpenTicket } from '@main/composables/useOpenTicket'
 import { useEmitter } from '@main/composables/useEmitter'
@@ -352,7 +355,6 @@ import {
   RMA_STEPS,
   RMA_TEST_RESULTS,
   RMA_WARRANTY,
-  SELECT_CLASS,
   defaultSupplier,
   outcomeLabel,
   rmaLine,
@@ -419,10 +421,14 @@ const serialCount = computed(
   () => String(form.serial_numbers || '').split(/[\n,;]/).map((s) => s.trim()).filter(Boolean).length
 )
 
-// Fill in the supplier from the brand, if it's still empty.
-const suggestSupplier = () => {
-  if (!String(form.supplier || '').trim()) form.supplier = defaultSupplier(form.brand)
+// Choosing a brand fills in its supplier, if the supplier is still empty.
+const setBrand = (brand) => {
+  form.brand = brand
+  if (!String(form.supplier || '').trim()) form.supplier = defaultSupplier(brand)
 }
+
+const warrantyOptions = RMA_WARRANTY.map((o) => ({ value: o.key, label: o.label }))
+const testOptions = RMA_TEST_RESULTS.map((o) => ({ value: o.key, label: o.label }))
 
 const busy = ref(false)
 const toast = (description, variant) => emitter.emit(EMITTER_EVENTS.SHOW_TOAST, { description, variant })

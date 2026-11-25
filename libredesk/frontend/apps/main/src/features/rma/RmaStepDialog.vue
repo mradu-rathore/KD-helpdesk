@@ -16,21 +16,21 @@
       </DialogHeader>
 
       <form class="space-y-4" @submit.prevent="submit">
-        <fieldset v-if="mode === 'resolve'" class="grid gap-2 sm:grid-cols-2">
-          <legend class="sr-only">Outcome</legend>
-          <label
+        <RadioGroup v-if="mode === 'resolve'" v-model="outcome" class="grid gap-2 sm:grid-cols-2" aria-label="Outcome">
+          <Label
             v-for="o in RMA_OUTCOMES"
             :key="o.key"
-            class="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 transition-colors"
+            :for="`kd-rma-outcome-${o.key}`"
+            class="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 font-normal transition-colors"
             :class="outcome === o.key ? 'border-foreground bg-accent/50' : 'border-border hover:bg-accent/30'"
           >
-            <input v-model="outcome" type="radio" name="kd-rma-outcome" :value="o.key" class="mt-0.5 accent-foreground" />
+            <RadioGroupItem :id="`kd-rma-outcome-${o.key}`" :value="o.key" class="mt-0.5" />
             <span>
               <span class="block text-sm font-medium">{{ o.label }}</span>
               <span class="block text-xs text-muted-foreground">{{ o.hint }}</span>
             </span>
-          </label>
-        </fieldset>
+          </Label>
+        </RadioGroup>
 
         <div v-if="outcomeField" class="space-y-1.5">
           <Label for="kd-rma-outcome-field">{{ outcomeField.fieldLabel }}</Label>
@@ -65,6 +65,7 @@ import { Button } from '@shared-ui/components/ui/button'
 import { Input } from '@shared-ui/components/ui/input'
 import { Label } from '@shared-ui/components/ui/label'
 import { Textarea } from '@shared-ui/components/ui/textarea'
+import { RadioGroup, RadioGroupItem } from '@shared-ui/components/ui/radio-group'
 import {
   Dialog,
   DialogContent,

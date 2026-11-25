@@ -33,10 +33,7 @@
         <div class="grid gap-3 sm:grid-cols-[9rem_1fr_5rem]">
           <div class="space-y-1.5">
             <Label for="kd-rma-brand">Brand</Label>
-            <Input id="kd-rma-brand" v-model="form.brand" list="kd-rma-brands" placeholder="Dahua" />
-            <datalist id="kd-rma-brands">
-              <option v-for="b in RMA_BRANDS" :key="b" :value="b" />
-            </datalist>
+            <KdSuggestCombobox id="kd-rma-brand" v-model="form.brand" :suggestions="RMA_BRANDS" placeholder="Select brand" />
           </div>
           <div class="space-y-1.5">
             <Label for="kd-rma-product">Product (model or code)</Label>
@@ -66,14 +63,11 @@
           </div>
           <div class="space-y-1.5">
             <Label for="kd-rma-date">Purchase date</Label>
-            <Input id="kd-rma-date" v-model="form.purchase_date" type="date" :max="today" />
+            <KdDatePicker id="kd-rma-date" v-model="form.purchase_date" :max="today" placeholder="Not known" />
           </div>
           <div class="space-y-1.5">
             <Label for="kd-rma-warranty">Warranty</Label>
-            <select id="kd-rma-warranty" v-model="form.warranty" :class="[SELECT_CLASS, 'w-full']">
-              <option value="">Not checked yet</option>
-              <option v-for="w in RMA_WARRANTY" :key="w.key" :value="w.key">{{ w.label }}</option>
-            </select>
+            <KdSelect id="kd-rma-warranty" v-model="form.warranty" :options="warrantyOptions" none-label="Not checked yet" />
           </div>
         </div>
 
@@ -107,7 +101,10 @@ import ContactPicker from '@/features/customer/ContactPicker.vue'
 import { useEmitter } from '@main/composables/useEmitter'
 import { invalidateCached } from '@main/composables/useCachedResource'
 import { EMITTER_EVENTS } from '@main/constants/emitterEvents'
-import { RMA_BRANDS, RMA_WARRANTY, SELECT_CLASS } from '@main/constants/kdRmas'
+import { RMA_BRANDS, RMA_WARRANTY } from '@main/constants/kdRmas'
+import KdSelect from '@main/components/kd/KdSelect.vue'
+import KdDatePicker from '@main/components/kd/KdDatePicker.vue'
+import KdSuggestCombobox from '@main/components/kd/KdSuggestCombobox.vue'
 import api from '@main/api'
 
 const props = defineProps({
@@ -122,6 +119,7 @@ const emit = defineEmits(['update:open', 'saved'])
 const emitter = useEmitter()
 const saving = ref(false)
 const today = format(new Date(), 'yyyy-MM-dd')
+const warrantyOptions = RMA_WARRANTY.map((o) => ({ value: o.key, label: o.label }))
 
 const blank = () => ({
   customer: props.customer,

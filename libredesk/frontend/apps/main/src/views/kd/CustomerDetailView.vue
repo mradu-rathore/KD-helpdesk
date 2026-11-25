@@ -77,22 +77,8 @@
 
       <!-- Tickets / contacts -->
       <section class="min-w-0">
-        <div class="mb-3 flex items-center gap-1 border-b border-border">
-          <button
-            v-for="tab in tabs"
-            :key="tab.key"
-            type="button"
-            class="-mb-px border-b-2 px-3 py-2 text-sm transition-colors"
-            :class="
-              activeTab === tab.key
-                ? 'border-foreground font-medium text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            "
-            @click="activeTab = tab.key"
-          >
-            {{ tab.label }}
-            <span class="ml-1 rounded bg-muted px-1.5 text-xs tabular-nums">{{ tab.count }}</span>
-          </button>
+        <div class="mb-3 flex items-center gap-3 border-b border-border">
+          <KdTabs v-model="activeTab" :tabs="tabs" class="min-w-0 flex-1" />
           <div class="ml-auto pb-1">
             <Button
               v-if="activeTab === 'rmas' && userStore.can('conversations:update_status')"
@@ -141,9 +127,9 @@
               <tr class="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
                 <th class="w-24 px-3 py-2 font-medium">Status</th>
                 <th class="w-16 px-2 py-2 font-medium">ID</th>
-                <th class="px-2 py-2 font-medium">Subject</th>
-                <th class="px-2 py-2 font-medium">Requester</th>
-                <th class="px-3 py-2 text-right font-medium">Updated</th>
+                <th class="min-w-[14rem] px-2 py-2 font-medium">Subject</th>
+                <th class="w-40 px-2 py-2 font-medium">Requester</th>
+                <th class="w-28 px-3 py-2 text-right font-medium">Updated</th>
               </tr>
             </thead>
             <tbody>
@@ -160,7 +146,7 @@
                 </td>
                 <td class="px-2 py-2 text-muted-foreground">#{{ tk.reference_number }}</td>
                 <td class="max-w-0 truncate px-2 py-2 font-medium">{{ tk.subject || '(no subject)' }}</td>
-                <td class="truncate px-2 py-2 text-muted-foreground">{{ tk.contact_name }}</td>
+                <td class="max-w-0 truncate px-2 py-2 text-muted-foreground">{{ tk.contact_name }}</td>
                 <td class="whitespace-nowrap px-3 py-2 text-right text-muted-foreground">{{ formatDate(tk.updated_at) }}</td>
               </tr>
             </tbody>
@@ -296,6 +282,7 @@ import { handleHTTPError } from '@shared-ui/utils/http.js'
 import KdPage from '@main/components/layout/KdPage.vue'
 import CustomerFormDialog from '@/features/customer/CustomerFormDialog.vue'
 import RmaFormDialog from '@/features/rma/RmaFormDialog.vue'
+import KdTabs from '@main/components/kd/KdTabs.vue'
 import { BADGE, rmaLine, rmaStatus, serialList } from '@main/constants/kdRmas'
 import { initials, initialsClass } from '@/features/customer/initials'
 import { statusClass } from '@main/constants/kdTickets'

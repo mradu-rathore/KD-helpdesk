@@ -149,8 +149,8 @@ const blank = () => ({
   contact: null,
   status_id: '',
   priority_id: '',
-  team_id: 'none',
-  agent_id: 'none'
+  team_id: '', // empty shows the "No group" placeholder, not a "None" item
+  agent_id: '' // empty shows "Unassigned"
 })
 const form = reactive({ ...blank(), ...(draft.value?.kd ? draft.value : {}) })
 

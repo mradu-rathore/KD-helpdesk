@@ -63,10 +63,6 @@ export const serialList = (s) => String(s || '').split('\n').filter(Boolean)
 // Same badge as the ticket list's status badges.
 export const BADGE = 'inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold leading-4'
 
-// Native selects styled like the app's inputs (give them a width where used).
-export const SELECT_CLASS =
-  'h-9 rounded-md border border-input bg-transparent px-2.5 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50'
-
 // Same as the ticket list: "Today 14:05" or "24 Nov".
 export function shortDate (value) {
   if (!value) return ''
