@@ -221,6 +221,13 @@ const setTicketCustomer = (uuid, customerID) =>
 const getKdDashboard = (params) => http.get('/api/v1/kd/dashboard', { params })
 const getKdContacts = (params) => http.get('/api/v1/kd/contacts', { params })
 const createKdTicket = (data) => http.post('/api/v1/kd/tickets', data)
+// KD: RMAs
+const getRmas = (params) => http.get('/api/v1/kd/rmas', { params })
+const getRma = (id) => http.get(`/api/v1/kd/rmas/${id}`)
+const createRma = (data) => http.post('/api/v1/kd/rmas', data)
+const updateRma = (id, data) => http.put(`/api/v1/kd/rmas/${id}`, data)
+const setRmaStatus = (id, data) => http.post(`/api/v1/kd/rmas/${id}/status`, data)
+const getTicketRmas = (uuid) => http.get(`/api/v1/conversations/${uuid}/rmas`)
 const getContact = (id) => http.get(`/api/v1/contacts/${id}`)
 const createContact = (data) =>
   http.post('/api/v1/contacts', data, {
@@ -903,6 +910,12 @@ export default {
   getKdDashboard,
   getKdContacts,
   createKdTicket,
+  getRmas,
+  getRma,
+  createRma,
+  updateRma,
+  setRmaStatus,
+  getTicketRmas,
   getContact,
   createContact,
   updateContact,

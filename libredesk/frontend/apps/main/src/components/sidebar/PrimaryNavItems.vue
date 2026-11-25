@@ -25,7 +25,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useStorage } from '@vueuse/core'
-import { Building2, Home, LayoutGrid, Shield, Ticket, Users } from 'lucide-vue-next'
+import { Building2, Home, LayoutGrid, PackageOpen, Shield, Ticket, Users } from 'lucide-vue-next'
 import { SidebarMenuButton, SidebarMenuItem } from '@shared-ui/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared-ui/components/ui/tooltip'
 import { useUserStore } from '@main/stores/user'
@@ -74,6 +74,14 @@ const items = computed(() =>
       to: inboxTarget.value,
       isActive: route.path.startsWith('/inboxes'),
       show: true
+    },
+    {
+      key: 'rmas',
+      icon: PackageOpen,
+      label: 'RMAs',
+      to: { name: 'rmas' },
+      isActive: route.path.startsWith('/rmas'),
+      show: userStore.can('conversations:read')
     },
     {
       key: 'customers',

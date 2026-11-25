@@ -94,6 +94,15 @@
             <span class="ml-1 rounded bg-muted px-1.5 text-xs tabular-nums">{{ tab.count }}</span>
           </button>
           <div class="ml-auto pb-1">
+            <Button
+              v-if="activeTab === 'rmas' && userStore.can('conversations:update_status')"
+              size="sm"
+              variant="outline"
+              class="h-7"
+              @click="showRmaForm = true"
+            >
+              <Plus class="mr-1 size-3.5" /> New RMA
+            </Button>
             <Popover v-if="activeTab === 'contacts' && userStore.can('contacts:write')" v-model:open="addOpen">
               <PopoverTrigger as-child>
                 <Button size="sm" variant="outline" class="h-7"><Plus class="mr-1 size-3.5" /> Add contact</Button>
@@ -161,6 +170,44 @@
           </p>
         </div>
 
+        <!-- RMAs -->
+        <div v-else-if="activeTab === 'rmas'" class="overflow-hidden rounded-lg border border-border">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
+                <th class="w-24 px-3 py-2 font-medium">RMA</th>
+                <th class="w-28 px-2 py-2 font-medium">Status</th>
+                <th class="min-w-[12rem] px-2 py-2 font-medium">Product</th>
+                <th class="w-36 px-2 py-2 font-medium max-md:hidden">Serial</th>
+                <th class="w-28 px-3 py-2 text-right font-medium">Opened</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="r in rmas"
+                :key="r.id"
+                class="cursor-pointer border-b border-border/60 last:border-0 transition-colors hover:bg-accent/50"
+                @click="router.push({ name: 'rma-detail', params: { id: r.id } })"
+              >
+                <td class="px-3 py-2 font-medium tabular-nums">{{ r.number }}</td>
+                <td class="px-2 py-2">
+                  <span :class="[BADGE, rmaStatus(r.status).badge]">
+                    {{ rmaStatus(r.status).label }}
+                  </span>
+                </td>
+                <td class="max-w-0 truncate px-2 py-2">{{ rmaLine(r) }}</td>
+                <td class="truncate px-2 py-2 font-mono text-xs text-muted-foreground max-md:hidden">
+                  {{ serialList(r.serial_numbers)[0] || '—' }}
+                </td>
+                <td class="whitespace-nowrap px-3 py-2 text-right text-muted-foreground">{{ formatDate(r.created_at) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="!rmas.length" class="px-4 py-10 text-center text-sm text-muted-foreground">
+            No RMAs for this customer yet.
+          </p>
+        </div>
+
         <!-- Contacts -->
         <div v-else class="overflow-hidden rounded-lg border border-border">
           <div
@@ -202,6 +249,11 @@
     <div v-else class="py-16 text-center text-sm text-muted-foreground">Customer not found.</div>
 
     <CustomerFormDialog v-model:open="showForm" :customer="customer" @saved="reload" />
+    <RmaFormDialog
+      v-model:open="showRmaForm"
+      :customer="customer ? { id: customer.id, name: customer.name } : null"
+      @saved="(r) => router.push({ name: 'rma-detail', params: { id: r.id } })"
+    />
 
     <AlertDialog v-model:open="confirmDelete">
       <AlertDialogContent>
@@ -243,6 +295,8 @@ import {
 import { handleHTTPError } from '@shared-ui/utils/http.js'
 import KdPage from '@main/components/layout/KdPage.vue'
 import CustomerFormDialog from '@/features/customer/CustomerFormDialog.vue'
+import RmaFormDialog from '@/features/rma/RmaFormDialog.vue'
+import { BADGE, rmaLine, rmaStatus, serialList } from '@main/constants/kdRmas'
 import { initials, initialsClass } from '@/features/customer/initials'
 import { statusClass } from '@main/constants/kdTickets'
 import { useCachedResource, invalidateCached } from '@main/composables/useCachedResource'
@@ -273,9 +327,18 @@ const subtitle = computed(() =>
   customer.value ? [customer.value.domain, customer.value.phone].filter(Boolean).join(' · ') : ''
 )
 
+// KD: the customer's RMAs (own cache key, so RMA changes refresh it)
+const { data: rmaData } = useCachedResource(
+  computed(() => (id.value ? `rmas?customer=${id.value}` : null)),
+  async () => (await api.getRmas({ customer_id: id.value, page_size: 100 })).data.data
+)
+const rmas = computed(() => rmaData.value?.results || [])
+const showRmaForm = ref(false)
+
 const activeTab = ref('tickets')
 const tabs = computed(() => [
   { key: 'tickets', label: 'Tickets', count: tickets.value.length },
+  { key: 'rmas', label: 'RMAs', count: rmaData.value?.total ?? rmas.value.length },
   { key: 'contacts', label: 'Contacts', count: contacts.value.length }
 ])
 

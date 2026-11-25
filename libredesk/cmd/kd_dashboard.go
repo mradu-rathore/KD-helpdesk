@@ -76,6 +76,9 @@ func handleKDDashboard(r *fastglue.Request) error {
 		LEFT JOIN conversations c ON c.assigned_user_id = u.id
 		LEFT JOIN conversation_statuses s ON s.id = c.status_id
 		WHERE u.type = 'agent' AND u.deleted_at IS NULL AND u.enabled
+			-- people on the support team, not integration logins like "RMA Form"
+			AND (EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = u.id)
+				OR EXISTS (SELECT 1 FROM conversations ac WHERE ac.assigned_user_id = u.id))
 		GROUP BY u.id
 		ORDER BY open DESC, waiting DESC, LOWER(u.first_name)`, days); err != nil {
 		return kdServerError(r, err)
@@ -123,6 +126,11 @@ func handleKDDashboard(r *fastglue.Request) error {
 		return kdServerError(r, err)
 	}
 
+	rmas, err := kdDashboardRmas(app, days)
+	if err != nil {
+		return kdServerError(r, err)
+	}
+
 	return r.SendEnvelope(map[string]any{
 		"days":        days,
 		"totals":      totals,
@@ -131,5 +139,83 @@ func handleKDDashboard(r *fastglue.Request) error {
 		"by_status":   byStatus,
 		"by_priority": byPriority,
 		"by_customer": byCustomer,
+		"rmas":        rmas,
 	})
+}
+
+type kdDashRmaTotals struct {
+	Open          int      `db:"open" json:"open"`
+	Requested     int      `db:"requested" json:"requested"`
+	Approved      int      `db:"approved" json:"approved"`
+	WithSupplier  int      `db:"with_supplier" json:"with_supplier"`
+	Created       int      `db:"created" json:"created"`
+	Resolved      int      `db:"resolved" json:"resolved"`
+	NoFaultFound  int      `db:"no_fault_found" json:"no_fault_found"`
+	Tested        int      `db:"tested" json:"tested"`
+	AvgTurnaround *float64 `db:"avg_turnaround" json:"avg_turnaround_secs"`
+}
+
+// kdDashboardRmas: open RMAs by step, and the period's volume by product,
+// supplier and outcome. Volume counts RMAs opened in the period; outcomes count
+// RMAs closed in it.
+func kdDashboardRmas(app *App, days int) (map[string]any, error) {
+	var totals kdDashRmaTotals
+	if err := app.db.Get(&totals, `
+		SELECT
+			COUNT(*) FILTER (WHERE status NOT IN ('resolved', 'rejected')) AS open,
+			COUNT(*) FILTER (WHERE status = 'requested') AS requested,
+			COUNT(*) FILTER (WHERE status = 'approved') AS approved,
+			COUNT(*) FILTER (WHERE status = 'with_supplier') AS with_supplier,
+			COUNT(*) FILTER (WHERE created_at >= NOW() - make_interval(days => $1)) AS created,
+			COUNT(*) FILTER (WHERE status = 'resolved' AND resolved_at >= NOW() - make_interval(days => $1)) AS resolved,
+			COUNT(*) FILTER (WHERE test_result = 'no_fault_found' AND created_at >= NOW() - make_interval(days => $1)) AS no_fault_found,
+			COUNT(*) FILTER (WHERE test_result <> '' AND created_at >= NOW() - make_interval(days => $1)) AS tested,
+			AVG(EXTRACT(EPOCH FROM resolved_at - created_at))
+				FILTER (WHERE status IN ('resolved', 'rejected') AND resolved_at >= NOW() - make_interval(days => $1)) AS avg_turnaround
+		FROM kd_rmas`, days); err != nil {
+		return nil, err
+	}
+
+	byStatus := []kdDashCount{}
+	if err := app.db.Select(&byStatus, `
+		SELECT status AS name, COUNT(*) AS count FROM kd_rmas
+		WHERE status NOT IN ('resolved', 'rejected')
+		GROUP BY status
+		ORDER BY array_position(ARRAY['requested', 'approved', 'received', 'testing', 'with_supplier'], status)`); err != nil {
+		return nil, err
+	}
+
+	byProduct := []kdDashCount{}
+	if err := app.db.Select(&byProduct, `
+		SELECT CASE WHEN brand = '' OR product ILIKE brand || '%' THEN product ELSE brand || ' ' || product END AS name,
+			SUM(quantity) AS count
+		FROM kd_rmas WHERE created_at >= NOW() - make_interval(days => $1)
+		GROUP BY 1 ORDER BY count DESC, name LIMIT 8`, days); err != nil {
+		return nil, err
+	}
+
+	bySupplier := []kdDashCount{}
+	if err := app.db.Select(&bySupplier, `
+		SELECT COALESCE(NULLIF(supplier, ''), 'Not set') AS name, SUM(quantity) AS count
+		FROM kd_rmas WHERE created_at >= NOW() - make_interval(days => $1)
+		GROUP BY 1 ORDER BY count DESC, name LIMIT 8`, days); err != nil {
+		return nil, err
+	}
+
+	byOutcome := []kdDashCount{}
+	if err := app.db.Select(&byOutcome, `
+		SELECT CASE WHEN status = 'rejected' THEN 'rejected' ELSE outcome END AS name, COUNT(*) AS count
+		FROM kd_rmas
+		WHERE status IN ('resolved', 'rejected') AND resolved_at >= NOW() - make_interval(days => $1)
+		GROUP BY 1 ORDER BY count DESC`, days); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"totals":      totals,
+		"by_status":   byStatus,
+		"by_product":  byProduct,
+		"by_supplier": bySupplier,
+		"by_outcome":  byOutcome,
+	}, nil
 }

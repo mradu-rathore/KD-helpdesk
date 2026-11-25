@@ -132,6 +132,45 @@
           </section>
         </div>
       </div>
+
+      <!-- KD: returns (RMAs) -->
+      <div class="flex items-center justify-between border-t border-border pt-5">
+        <h2 class="text-base font-semibold">Returns (RMAs)</h2>
+        <router-link :to="{ name: 'rmas' }" class="text-xs text-muted-foreground hover:text-foreground">All RMAs</router-link>
+      </div>
+      <div class="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+        <component
+          :is="tile.to ? 'router-link' : 'div'"
+          v-for="tile in rmaTiles"
+          :key="tile.label"
+          :to="tile.to"
+          class="rounded-xl border border-border p-4 transition-colors"
+          :class="tile.to ? 'hover:border-foreground/30 hover:bg-accent/40' : ''"
+        >
+          <p class="text-xs text-muted-foreground">{{ tile.label }}</p>
+          <Skeleton v-if="loading" class="mt-2 h-7 w-12" />
+          <p v-else class="mt-1 text-2xl font-semibold tabular-nums">{{ tile.value }}</p>
+          <p class="mt-0.5 text-[11px] text-muted-foreground">{{ tile.hint }}</p>
+        </component>
+      </div>
+      <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <section class="rounded-xl border border-border p-4">
+          <h2 class="mb-3 text-sm font-semibold">Open RMAs by step</h2>
+          <BarList :items="rmaByStatus" :loading="loading" :color="rmaStepColor" empty="No open RMAs" />
+        </section>
+        <section class="rounded-xl border border-border p-4">
+          <h2 class="mb-3 text-sm font-semibold">Units returned by product ({{ days }}d)</h2>
+          <BarList :items="rmas.by_product || []" :loading="loading" empty="No RMAs in this period" />
+        </section>
+        <section class="rounded-xl border border-border p-4">
+          <h2 class="mb-3 text-sm font-semibold">Units returned by supplier ({{ days }}d)</h2>
+          <BarList :items="rmas.by_supplier || []" :loading="loading" empty="No RMAs in this period" />
+        </section>
+        <section class="rounded-xl border border-border p-4">
+          <h2 class="mb-3 text-sm font-semibold">How RMAs closed ({{ days }}d)</h2>
+          <BarList :items="rmaByOutcome" :loading="loading" empty="None closed in this period" />
+        </section>
+      </div>
     </div>
   </KdPage>
 </template>
@@ -149,6 +188,7 @@ import { useCachedResource } from '@main/composables/useCachedResource'
 import { useSharedViewStore } from '@main/stores/sharedView'
 import { initials } from '@/features/customer/initials'
 import { statusClass } from '@main/constants/kdTickets'
+import { RMA_STATUSES, outcomeLabel, rmaStatus } from '@main/constants/kdRmas'
 import api from '@main/api'
 
 defineOptions({ name: 'DashboardView' })
@@ -207,6 +247,38 @@ const dayLabel = (d) => format(new Date(d), 'd MMM')
 const trendLabel = computed(
   () =>
     `${daily.value.reduce((s, d) => s + d.created, 0)} created and ${daily.value.reduce((s, d) => s + d.solved, 0)} solved in the last ${days.value} days`
+)
+
+// KD: returns (RMAs)
+const rmas = computed(() => data.value?.rmas || {})
+const rmaTotals = computed(() => rmas.value.totals || {})
+const rmaList = (status) => ({ name: 'rmas', query: { status } })
+const rmaTiles = computed(() => {
+  const t = rmaTotals.value
+  return [
+    { label: 'Open RMAs', value: t.open ?? 0, hint: 'Not yet closed', to: rmaList('open') },
+    { label: 'Needs checking', value: t.requested ?? 0, hint: 'Invoice and warranty', to: rmaList('requested') },
+    { label: 'Awaiting goods', value: t.approved ?? 0, hint: 'Approved, not received', to: rmaList('approved') },
+    { label: 'With supplier', value: t.with_supplier ?? 0, hint: 'Claimed from manufacturer', to: rmaList('with_supplier') },
+    { label: 'Resolved', value: t.resolved ?? 0, hint: `Last ${days.value} days`, to: rmaList('resolved') },
+    { label: 'Avg turnaround', value: duration(t.avg_turnaround_secs), hint: `Request to close, ${days.value}d`, to: null },
+    {
+      label: 'No fault found',
+      value: t.tested ? `${Math.round((t.no_fault_found / t.tested) * 100)}%` : '—',
+      hint: t.tested ? `${t.no_fault_found} of ${t.tested} tested` : 'Nothing tested yet',
+      to: null
+    }
+  ]
+})
+const rmaByStatus = computed(() =>
+  (rmas.value.by_status || []).map((s) => ({ name: rmaStatus(s.name).label, count: s.count }))
+)
+const rmaStepColor = (label) => RMA_STATUSES.find((s) => s.label === label)?.badge || 'bg-zinc-400'
+const rmaByOutcome = computed(() =>
+  (rmas.value.by_outcome || []).map((o) => ({
+    name: o.name === 'rejected' ? 'Rejected' : outcomeLabel(o.name) || o.name,
+    count: o.count
+  }))
 )
 
 const PRIORITY_COLORS = { urgent: 'bg-red-600', high: 'bg-orange-500', medium: 'bg-amber-400', low: 'bg-sky-500' }

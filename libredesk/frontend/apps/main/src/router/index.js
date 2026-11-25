@@ -47,6 +47,18 @@ const routes = [
         meta: { title: 'Dashboard', hidePageHeader: true, kdPage: true }
       },
       {
+        path: 'rmas',
+        name: 'rmas',
+        component: () => import('@main/views/kd/RmasView.vue'),
+        meta: { title: 'RMAs', hidePageHeader: true, kdPage: true }
+      },
+      {
+        path: 'rmas/:id',
+        name: 'rma-detail',
+        component: () => import('@main/views/kd/RmaDetailView.vue'),
+        meta: { title: 'RMA', hidePageHeader: true, kdPage: true }
+      },
+      {
         path: 'customers',
         name: 'customers',
         component: () => import('@main/views/kd/CustomersView.vue'),

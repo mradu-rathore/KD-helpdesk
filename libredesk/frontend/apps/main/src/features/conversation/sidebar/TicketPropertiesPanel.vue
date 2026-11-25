@@ -78,6 +78,43 @@
       </div>
     </div>
 
+    <!-- KD: the ticket's RMAs -->
+    <div class="border-b border-border p-4">
+      <div class="mb-2 flex items-center justify-between">
+        <p :class="LABEL" class="mb-0">RMAs</p>
+        <button
+          v-if="userStore.can('conversations:update_status')"
+          type="button"
+          class="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
+          @click="rmaFormOpen = true"
+        >
+          <Plus class="size-3" /> Create RMA
+        </button>
+      </div>
+      <ul v-if="rmas.length" class="space-y-1.5">
+        <li v-for="r in rmas" :key="r.id">
+          <router-link
+            :to="{ name: 'rma-detail', params: { id: r.id } }"
+            class="block rounded-md border border-border px-2.5 py-1.5 transition-colors hover:bg-accent/50"
+          >
+            <span class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium tabular-nums">{{ r.number }}</span>
+              <span :class="[BADGE, rmaStatus(r.status).badge]">
+                {{ rmaStatus(r.status).label }}
+              </span>
+            </span>
+            <span class="block truncate text-xs text-muted-foreground">{{ rmaLine(r) }}</span>
+          </router-link>
+        </li>
+      </ul>
+      <p v-else class="text-xs text-muted-foreground">No returns on this ticket.</p>
+    </div>
+    <RmaFormDialog
+      v-model:open="rmaFormOpen"
+      :ticket="{ uuid: conv.uuid, reference_number: conv.reference_number }"
+      @saved="loadRmas(conv.uuid)"
+    />
+
     <!-- Ticket info + KD ticket fields (custom attributes) -->
     <div class="p-4">
       <p :class="LABEL" class="mb-2">Ticket fields</p>
@@ -98,6 +135,9 @@ import SelectAgentCombobox from '@main/components/combobox/SelectAgentCombobox.v
 import SelectTeamCombobox from '@main/components/combobox/SelectTeamCombobox.vue'
 import SelectTagCombobox from '@main/components/combobox/SelectTagCombobox.vue'
 import CustomerPicker from '@/features/customer/CustomerPicker.vue'
+import RmaFormDialog from '@/features/rma/RmaFormDialog.vue'
+import { Plus } from 'lucide-vue-next'
+import { BADGE, rmaLine, rmaStatus } from '@main/constants/kdRmas'
 import { invalidateCached } from '@main/composables/useCachedResource'
 import { useEmitter } from '@main/composables/useEmitter'
 import { EMITTER_EVENTS } from '@main/constants/emitterEvents'
@@ -137,6 +177,29 @@ watch(
     } catch {
       // no access or offline: leave the field empty
     }
+  },
+  { immediate: true }
+)
+
+// KD: RMAs on this ticket (cached per ticket, refreshed on every open)
+const rmas = ref([])
+const rmaFormOpen = ref(false)
+const rmaCache = new Map()
+async function loadRmas (uuid) {
+  try {
+    const res = await api.getTicketRmas(uuid)
+    rmaCache.set(uuid, res.data.data)
+    if (conv.value?.uuid === uuid) rmas.value = res.data.data
+  } catch {
+    // no access or offline: leave the list as it is
+  }
+}
+watch(
+  () => conv.value?.uuid,
+  (uuid) => {
+    if (!uuid) return
+    rmas.value = rmaCache.get(uuid) || []
+    loadRmas(uuid)
   },
   { immediate: true }
 )

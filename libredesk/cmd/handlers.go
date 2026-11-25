@@ -451,6 +451,7 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.GET("/admin/{all:*}", authPage(serveIndexPage))
 	g.GET("/contacts/{all:*}", authPage(serveIndexPage))
 	g.GET("/customers/{all:*}", authPage(serveIndexPage))
+	g.GET("/rmas/{all:*}", authPage(serveIndexPage))
 	getAndHead("/home", authPage(serveIndexPage))
 	getAndHead("/dashboard", authPage(serveIndexPage))
 	g.GET("/reports/{all:*}", authPage(serveIndexPage))
