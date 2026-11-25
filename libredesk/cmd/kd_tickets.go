@@ -71,11 +71,6 @@ func handleKDCreateTicket(r *fastglue.Request) error {
 		}
 	}
 
-	inboxID, err := kdDefaultInbox(app)
-	if err != nil {
-		return sendErrorEnvelope(r, err)
-	}
-
 	// Requester: the chosen contact, or the customer's own company contact.
 	contactID := req.ContactID
 	if contactID > 0 {
@@ -92,28 +87,9 @@ func handleKDCreateTicket(r *fastglue.Request) error {
 		}
 	}
 
-	_, uuid, err := app.conversation.CreateConversation(contactID, inboxID, "", time.Now(), req.Subject, false, nil, nil, 0, 0)
+	uuid, err := kdLogTicket(app, contactID, req.CustomerID, req.Subject, kdTextToHTML(req.Body), auser.ID)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
-	}
-	if _, err := app.conversation.CreateContactMessage(nil, contactID, uuid, kdTextToHTML(req.Body), cmodels.ContentTypeHTML, true, "", auser.ID); err != nil {
-		app.lo.Error("kd tickets: error adding description", "error", err)
-		_ = app.conversation.DeleteConversation(uuid)
-		return sendErrorEnvelope(r, err)
-	}
-
-	// Customer link: on the ticket, and on the contact if they have none yet.
-	if req.CustomerID > 0 {
-		if _, err := app.db.Exec(`
-			WITH t AS (
-				INSERT INTO kd_conversation_customers (conversation_id, customer_id)
-				SELECT id, $2 FROM conversations WHERE uuid = $1
-				ON CONFLICT (conversation_id) DO UPDATE SET customer_id = EXCLUDED.customer_id
-			)
-			INSERT INTO kd_contact_customers (contact_id, customer_id) VALUES ($3, $2)
-			ON CONFLICT (contact_id) DO NOTHING`, uuid, req.CustomerID, contactID); err != nil {
-			app.lo.Error("kd tickets: error linking customer", "error", err)
-		}
 	}
 
 	// Owner, status and priority. Team assignment clears the agent, so it goes first.
@@ -143,6 +119,41 @@ func handleKDCreateTicket(r *fastglue.Request) error {
 		return sendErrorEnvelope(r, err)
 	}
 	return r.SendEnvelope(conv)
+}
+
+// kdLogTicket logs a ticket in the default inbox from contactID, with bodyHTML
+// as the requester's first message (nothing is emailed), and links it to
+// customerID when > 0 (and the contact too, if they have no customer yet).
+// Used by New ticket and by RMAs. Returns the ticket's UUID.
+func kdLogTicket(app *App, contactID, customerID int, subject, bodyHTML string, actorID int) (string, error) {
+	inboxID, err := kdDefaultInbox(app)
+	if err != nil {
+		return "", err
+	}
+	_, uuid, err := app.conversation.CreateConversation(contactID, inboxID, "", time.Now(), subject, false, nil, nil, 0, 0)
+	if err != nil {
+		return "", err
+	}
+	if _, err := app.conversation.CreateContactMessage(nil, contactID, uuid, bodyHTML, cmodels.ContentTypeHTML, true, "", actorID); err != nil {
+		app.lo.Error("kd tickets: error adding description", "error", err)
+		_ = app.conversation.DeleteConversation(uuid)
+		return "", err
+	}
+
+	// Customer link: on the ticket, and on the contact if they have none yet.
+	if customerID > 0 {
+		if _, err := app.db.Exec(`
+			WITH t AS (
+				INSERT INTO kd_conversation_customers (conversation_id, customer_id)
+				SELECT id, $2 FROM conversations WHERE uuid = $1
+				ON CONFLICT (conversation_id) DO UPDATE SET customer_id = EXCLUDED.customer_id
+			)
+			INSERT INTO kd_contact_customers (contact_id, customer_id) VALUES ($3, $2)
+			ON CONFLICT (contact_id) DO NOTHING`, uuid, customerID, contactID); err != nil {
+			app.lo.Error("kd tickets: error linking customer", "error", err)
+		}
+	}
+	return uuid, nil
 }
 
 // kdCompanyContact returns the contact that stands for a customer itself, for

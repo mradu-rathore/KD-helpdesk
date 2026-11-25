@@ -175,6 +175,15 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.POST("/api/v1/kd/tickets", perm(handleKDCreateTicket, "conversations:write"))
 	g.GET("/api/v1/kd/dashboard", perm(handleKDDashboard, "reports:manage"))
 	g.GET("/api/v1/kd/contacts", perm(handleKDGetContacts, "contacts:read_all"))
+	// KD: RMAs. Writes use a permission every agent has (the default Agent role
+	// can't create tickets), so the whole support team can work RMAs.
+	g.GET("/api/v1/kd/rmas", perm(handleKDGetRmas, "conversations:read"))
+	g.POST("/api/v1/kd/rmas", perm(handleKDCreateRma, "conversations:update_status"))
+	g.POST("/api/v1/kd/rmas/intake", perm(handleKDRmaIntake, "conversations:update_status"))
+	g.GET("/api/v1/kd/rmas/{id}", perm(handleKDGetRma, "conversations:read"))
+	g.PUT("/api/v1/kd/rmas/{id}", perm(handleKDUpdateRma, "conversations:update_status"))
+	g.POST("/api/v1/kd/rmas/{id}/status", perm(handleKDSetRmaStatus, "conversations:update_status"))
+	g.GET("/api/v1/conversations/{uuid}/rmas", perm(handleKDGetTicketRmas, "conversations:read"))
 	g.PUT("/api/v1/contacts/{id}", perm(handleUpdateContact, "contacts:write"))
 	g.PUT("/api/v1/contacts/{id}/block", perm(handleBlockContact, "contacts:block"))
 	g.DELETE("/api/v1/contacts/{id}", perm(handleDeleteContact, "contacts:delete"))

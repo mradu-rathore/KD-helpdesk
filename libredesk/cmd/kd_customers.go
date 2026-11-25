@@ -54,7 +54,7 @@ const kdTicketCustomer = `
 `
 
 func kdEnsureSchema(db *sqlx.DB) error {
-	_, err := db.Exec(kdSchema)
+	_, err := db.Exec(kdSchema + kdRmaSchema)
 	return err
 }
 
