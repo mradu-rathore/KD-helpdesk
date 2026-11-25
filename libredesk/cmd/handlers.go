@@ -184,6 +184,8 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.PUT("/api/v1/kd/rmas/{id}", perm(handleKDUpdateRma, "conversations:update_status"))
 	g.POST("/api/v1/kd/rmas/{id}/status", perm(handleKDSetRmaStatus, "conversations:update_status"))
 	g.GET("/api/v1/conversations/{uuid}/rmas", perm(handleKDGetTicketRmas, "conversations:read"))
+	// KD: CSV export for importing into HubSpot
+	g.GET("/api/v1/kd/export/hubspot/{kind}", perm(handleKDExportHubSpot, "reports:manage"))
 	g.PUT("/api/v1/contacts/{id}", perm(handleUpdateContact, "contacts:write"))
 	g.PUT("/api/v1/contacts/{id}/block", perm(handleBlockContact, "contacts:block"))
 	g.DELETE("/api/v1/contacts/{id}", perm(handleDeleteContact, "contacts:delete"))

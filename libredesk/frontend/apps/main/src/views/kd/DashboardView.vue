@@ -13,6 +13,26 @@
       <Button variant="ghost" size="sm" class="h-8" as-child>
         <router-link :to="{ name: 'overview' }">More reports</router-link>
       </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <Button variant="outline" size="sm" class="h-8">
+            <Download class="mr-1 size-3.5" /> Export for HubSpot
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" class="w-64">
+          <DropdownMenuLabel class="text-xs font-normal text-muted-foreground">
+            CSV files for HubSpot's import tool - import in this order
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <!-- classes on the item (not the link) so they're merged over the item's own -->
+          <DropdownMenuItem v-for="(f, i) in HUBSPOT_FILES" :key="f.kind" as-child class="cursor-pointer flex-col items-start gap-0">
+            <a :href="`/api/v1/kd/export/hubspot/${f.kind}`" download>
+              <span>{{ i + 1 }}. {{ f.label }}</span>
+              <span class="text-xs text-muted-foreground">{{ f.hint }}</span>
+            </a>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </template>
 
     <div class="space-y-5 p-5" :class="{ 'opacity-60 transition-opacity': refreshing && !loading }">
@@ -172,7 +192,15 @@
 import { computed, defineComponent, h, ref } from 'vue'
 import { useStorage, useNow } from '@vueuse/core'
 import { format, formatDistanceToNowStrict } from 'date-fns'
-import { RefreshCw } from 'lucide-vue-next'
+import { Download, RefreshCw } from 'lucide-vue-next'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@shared-ui/components/ui/dropdown-menu'
 import { Button } from '@shared-ui/components/ui/button'
 import { Skeleton } from '@shared-ui/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@shared-ui/components/ui/tabs'
@@ -188,6 +216,14 @@ import api from '@main/api'
 defineOptions({ name: 'DashboardView' })
 
 const RANGES = [7, 30, 90]
+
+// KD: HubSpot export files, in the order to import them
+const HUBSPOT_FILES = [
+  { kind: 'companies', label: 'Companies', hint: 'Customers, matched by domain' },
+  { kind: 'contacts', label: 'Contacts', hint: 'Linked to their company' },
+  { kind: 'tickets', label: 'Tickets', hint: 'With the full conversation' },
+  { kind: 'rmas', label: 'RMAs', hint: 'As tickets in an RMA pipeline' }
+]
 const days = useStorage('kd_dashboard_days', 30)
 const loadedAt = ref(null)
 const now = useNow({ interval: 30_000 })
