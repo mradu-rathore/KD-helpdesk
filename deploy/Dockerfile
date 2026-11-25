@@ -35,6 +35,7 @@ COPY deploy/start.sh ./start.sh
 # KD_LOAD_SAMPLE_DATA=true (see start.sh)
 COPY dev/seed.sql ./seed.sql
 COPY dev/seed-customers.sql ./seed-customers.sql
+COPY dev/seed-rmas.sql ./seed-rmas.sql
 RUN mkdir -p uploads && chown -R libredesk:libredesk /libredesk && chmod +x start.sh
 USER libredesk
 

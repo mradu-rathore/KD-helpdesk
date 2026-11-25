@@ -11,7 +11,9 @@ libredesk/              Libredesk source (upstream v2.9.2): edit freely
   cmd/, internal/       Go backend (API handlers, features, SQL in queries.sql)
   internal/migrations/  database migrations
   frontend/             Vue 3 frontend
-dev/                    scripts to run everything locally
+dev/                    scripts to run everything locally (seed*.sql: fictional sample data)
+deploy/, render.yaml    Docker image and Render Blueprint for the hosted copy
+integrations/           google-forms/: RMA Google Form -> helpdesk (setup in its README)
 local/                  git-ignored runtime: Postgres data, Redis, uploads, secrets, logs
 ```
 
