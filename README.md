@@ -14,6 +14,7 @@ libredesk/              Libredesk source (upstream v2.9.2): edit freely
 dev/                    scripts to run everything locally (seed*.sql: fictional sample data)
 deploy/, render.yaml    Docker image and Render Blueprint for the hosted copy
 integrations/           google-forms/: RMA Google Form -> helpdesk (setup in its README)
+docs/                   hubspot-migration.md: moving the data into HubSpot later
 local/                  git-ignored runtime: Postgres data, Redis, uploads, secrets, logs
 ```
 
