@@ -2,6 +2,8 @@
 <template>
   <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-background">
     <header class="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-border px-5 py-2.5">
+      <!-- Same spot as on the ticket lists: collapse / expand the main sidebar -->
+      <span v-if="!isMobile" class="-ml-1.5 flex"><KdSidebarToggle /></span>
       <slot name="leading" />
       <div class="min-w-0 flex-1">
         <h1 class="truncate text-base font-semibold leading-tight">{{ title }}</h1>
@@ -18,6 +20,11 @@
 </template>
 
 <script setup>
+import { useIsMobile } from '@shared-ui/composables'
+import KdSidebarToggle from '@main/components/sidebar/KdSidebarToggle.vue'
+
+const isMobile = useIsMobile()
+
 defineProps({
   title: { type: String, required: true },
   subtitle: { type: String, default: '' },

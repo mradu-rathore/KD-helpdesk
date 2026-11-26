@@ -7,6 +7,8 @@
   <div class="flex h-full min-h-0 flex-col">
     <!-- Header: view title + count -->
     <div class="flex shrink-0 items-center gap-3 border-b border-border px-4 pb-3 pt-4">
+      <!-- KD: desktop collapses the main sidebar; phones open the menu -->
+      <KdSidebarToggle v-if="!isMobile" />
       <SidebarTrigger class="cursor-pointer md:hidden" />
       <div class="min-w-0 flex-1">
         <!-- KD: the title switches between ticket views (they're no longer in the sidebar) -->
@@ -198,6 +200,8 @@ import {
   DropdownMenuTrigger
 } from '@shared-ui/components/ui/dropdown-menu'
 import { SidebarTrigger } from '@shared-ui/components/ui/sidebar'
+import KdSidebarToggle from '@main/components/sidebar/KdSidebarToggle.vue'
+import { useIsMobile } from '@shared-ui/composables'
 import { formatFullTimestamp } from '@shared-ui/utils/datetime.js'
 import { useConversationStore } from '@/stores/conversation'
 import { useUsersStore } from '@/stores/users'
@@ -215,6 +219,7 @@ const sharedViewStore = useSharedViewStore()
 const viewStore = useViewStore()
 const { canBulkAct } = useBulkActionPermissions()
 const route = useRoute()
+const isMobile = useIsMobile()
 const router = useRouter()
 const { t } = useI18n()
 

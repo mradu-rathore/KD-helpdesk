@@ -2,28 +2,53 @@
   KD: one labelled desktop sidebar (Frappe Helpdesk style) instead of
   Libredesk's icon rail + inbox column: search, notifications, the main
   pages. Ticket views are switched from the ticket list's title.
+
+  Collapses to an icon rail (toggle, ⌘B). It stays in the page flow rather
+  than shadcn's fixed-position collapsible, so it keeps the app's rounded,
+  padded layout; shadcn's own icon-mode styles apply through the
+  data-collapsible="icon" attribute, and menu buttons show tooltips.
 -->
 <template>
-  <SidebarProvider style="--sidebar-width: 15rem" class="w-auto z-50">
-    <ShadcnSidebar collapsible="none" class="overflow-hidden rounded-xl border border-sidebar-border">
-      <!-- Brand -->
-      <SidebarHeader class="px-3 pb-1 pt-3">
-        <router-link :to="{ name: 'home' }" class="flex items-center gap-2 rounded-md px-1 py-1">
-          <span class="inline-flex size-7 items-center justify-center rounded-md bg-foreground text-[11px] font-bold text-background">
-            KD
-          </span>
-          <span class="truncate text-sm font-semibold">{{ siteName }}</span>
-        </router-link>
+  <SidebarProvider
+    :style="{ '--sidebar-width': '15rem', '--sidebar-width-icon': '3rem' }"
+    class="w-auto z-50"
+    :open="!collapsed"
+    @update:open="collapsed = !$event"
+  >
+    <ShadcnSidebar
+      collapsible="none"
+      :data-collapsible="collapsed ? 'icon' : undefined"
+      :data-state="collapsed ? 'collapsed' : 'expanded'"
+      :class="[
+        'group overflow-hidden rounded-xl border border-sidebar-border transition-[width] duration-200 ease-out',
+        collapsed && 'w-[--sidebar-width-icon]'
+      ]"
+    >
+      <!-- Brand + collapse toggle (stacked when collapsed) -->
+      <SidebarHeader class="px-3 pb-1 pt-3 group-data-[collapsible=icon]:px-2">
+        <div class="flex items-center gap-1 group-data-[collapsible=icon]:flex-col">
+          <router-link
+            :to="{ name: 'home' }"
+            class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:p-0.5"
+            :aria-label="siteName"
+          >
+            <span class="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-[11px] font-bold text-background">
+              KD
+            </span>
+            <span class="truncate text-sm font-semibold group-data-[collapsible=icon]:hidden">{{ siteName }}</span>
+          </router-link>
+          <KdSidebarToggle />
+        </div>
       </SidebarHeader>
 
-      <SidebarContent class="gap-0">
+      <SidebarContent class="gap-0 group-data-[collapsible=icon]:overflow-y-auto group-data-[collapsible=icon]:[scrollbar-width:none]">
         <SidebarGroup class="pb-1">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton @click="palette.openPalette()">
+              <SidebarMenuButton :tooltip="t('globals.terms.search')" @click="palette.openPalette()">
                 <Search />
                 <span>{{ t('globals.terms.search') }}</span>
-                <kbd class="ml-auto rounded border border-sidebar-border px-1 font-sans text-[10px] text-muted-foreground">
+                <kbd class="ml-auto rounded border border-sidebar-border px-1 font-sans text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
                   {{ modKey }}K
                 </kbd>
               </SidebarMenuButton>
@@ -37,7 +62,7 @@
         <SidebarGroup class="py-1">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton @click="emit('createConversation')">
+              <SidebarMenuButton :tooltip="t('conversation.newConversation')" @click="emit('createConversation')">
                 <SquarePen />
                 <span>{{ t('conversation.newConversation') }}</span>
               </SidebarMenuButton>
@@ -51,7 +76,7 @@
       <SidebarFooter class="gap-1">
         <SidebarMenu>
           <SidebarMenuItem v-if="userStore.hasAdminTabPermissions">
-            <SidebarMenuButton as-child :is-active="route.path.startsWith('/admin')">
+            <SidebarMenuButton as-child :tooltip="t('globals.terms.admin')" :is-active="route.path.startsWith('/admin')">
               <router-link :to="{ name: userStore.can('general_settings:manage') ? 'general' : 'admin' }">
                 <Settings />
                 <span>{{ t('globals.terms.admin') }}</span>
@@ -84,6 +109,8 @@ import {
   SidebarProvider
 } from '@shared-ui/components/ui/sidebar'
 import PrimaryNavItems from './PrimaryNavItems.vue'
+import KdSidebarToggle from './KdSidebarToggle.vue'
+import { useKdSidebar } from '@main/composables/useKdSidebar'
 import NotificationBell from './NotificationBell.vue'
 import SidebarNavUser from './SidebarNavUser.vue'
 import { useCommandPalette } from '@/features/command/useCommandPalette'
@@ -99,6 +126,7 @@ const palette = useCommandPalette()
 const userStore = useUserStore()
 const conversationStore = useConversationStore()
 const settingsStore = useAppSettingsStore()
+const { collapsed } = useKdSidebar()
 
 const siteName = computed(() => {
   const name = settingsStore.settings?.['app.site_name']
