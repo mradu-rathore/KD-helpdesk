@@ -272,6 +272,7 @@ func main() {
 		pushNotification            = initPushNotification(db, settings, i18n, replyDeliveryChecker)
 		notificationEmailQueue      = initNotificationEmailQueue(db, notifier, replyDeliveryChecker)
 		notifDispatcher             = initNotifDispatcher(userNotification, notificationPreference, pushNotification, notificationEmailQueue, wsHub, ko.Bool("notification.email.enabled"))
+		_                           = kdEnsureDefaults(db, lo) // KD: one-time defaults, before rules load
 		automation                  = initAutomationEngine(db, i18n)
 		ai                          = initAI(ctx, db, i18n, ssrfControl)
 		sla                         = initSLA(db, team, settings, businessHours, template, user, i18n, notifDispatcher)

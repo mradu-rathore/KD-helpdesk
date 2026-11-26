@@ -17,6 +17,7 @@ import (
 	cmodels "github.com/abhinavxd/libredesk/internal/conversation/models"
 	"github.com/abhinavxd/libredesk/internal/envelope"
 	umodels "github.com/abhinavxd/libredesk/internal/user/models"
+	wmodels "github.com/abhinavxd/libredesk/internal/webhook/models"
 	"github.com/zerodha/fastglue"
 )
 
@@ -134,10 +135,27 @@ func kdLogTicket(app *App, contactID, customerID int, subject, bodyHTML string, 
 	if err != nil {
 		return "", err
 	}
-	if _, err := app.conversation.CreateContactMessage(nil, contactID, uuid, bodyHTML, cmodels.ContentTypeHTML, true, "", actorID); err != nil {
+	// The description is stored as the requester's message without the
+	// new-ticket automation hooks: those rules are for tickets that arrive by
+	// email (group, priority, tag) and would overwrite what the agent chose.
+	msg := cmodels.Message{
+		ConversationUUID: uuid,
+		SenderID:         contactID,
+		UploadUserID:     actorID,
+		Type:             cmodels.MessageIncoming,
+		SenderType:       cmodels.SenderTypeContact,
+		Status:           cmodels.MessageStatusReceived,
+		Content:          bodyHTML,
+		ContentType:      cmodels.ContentTypeHTML,
+	}
+	if err := app.conversation.InsertMessage(&msg); err != nil {
 		app.lo.Error("kd tickets: error adding description", "error", err)
 		_ = app.conversation.DeleteConversation(uuid)
 		return "", err
+	}
+	_ = app.conversation.StartConversationWaitingSince(uuid, time.Now())
+	if conv, err := app.conversation.GetConversation(0, uuid, ""); err == nil {
+		app.webhook.TriggerEvent(wmodels.EventConversationCreated, conv)
 	}
 
 	// Customer link: on the ticket, and on the contact if they have none yet.

@@ -118,6 +118,7 @@ import CustomerFormDialog from '@/features/customer/CustomerFormDialog.vue'
 import { useNewConversationDraft } from './useNewConversationDraft.js'
 import { useConversationStore } from '@main/stores/conversation'
 import { useUserStore } from '@main/stores/user'
+import { useTeamStore } from '@main/stores/team'
 import { useEmitter } from '@main/composables/useEmitter'
 import { useOpenTicket } from '@main/composables/useOpenTicket'
 import { invalidateCached } from '@main/composables/useCachedResource'
@@ -134,6 +135,7 @@ const modKey = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+'
 
 const conversationStore = useConversationStore()
 const userStore = useUserStore()
+const teamStore = useTeamStore()
 const emitter = useEmitter()
 const openTicket = useOpenTicket()
 const draft = useNewConversationDraft('email')
@@ -224,10 +226,22 @@ defineExpose({ focus })
 
 onMounted(async () => {
   await Promise.all([conversationStore.fetchStatuses(), conversationStore.fetchPriorities()])
-  // Default status: Open.
+  // Defaults: status Open, priority High, group Support (any can be changed).
   if (!form.status_id) {
     const open = conversationStore.statusOptionsNoSnooze.find((s) => s.label.toLowerCase() === 'open')
     if (open) form.status_id = open.value
+  }
+  if (!form.priority_id) {
+    const high = conversationStore.priorityOptions.find((p) => p.label.toLowerCase() === 'high')
+    if (high) form.priority_id = high.value
+  }
+  if (!form.team_id) {
+    try {
+      const support = (await teamStore.searchTeams('Support')).find((t) => t.label.toLowerCase() === 'support')
+      if (support && !form.team_id) form.team_id = support.value
+    } catch {
+      // No default group if teams can't be loaded.
+    }
   }
   if (props.initialContact?.id && !form.contact) {
     selectContact({ ...props.initialContact })
