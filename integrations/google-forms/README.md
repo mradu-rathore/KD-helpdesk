@@ -14,6 +14,21 @@ the first time.
 The helpdesk must be reachable from the internet (Google calls it), so use the hosted
 copy (Render), not `localhost`.
 
+## KD's demo form (live)
+
+Created on 26 Nov 2026 with `createRmaForm()`, owned by **kd.support.demo@gmail.com**,
+connected to the hosted helpdesk (https://kd-helpdesk.onrender.com).
+
+| What | Link |
+|---|---|
+| Form for customers (submit RMAs here) | https://docs.google.com/forms/d/e/1FAIpQLSeFwKpS3svS6OQCiKksZv74IQo3KYDtZGXWcLW7QVhQdGL5PA/viewform |
+| Edit the form | https://docs.google.com/forms/d/1G3ADdBL-BIwSyy7I602ZUkGhtTeIKBNdcEInYbiRiLU/edit |
+| Responses sheet | https://docs.google.com/spreadsheets/d/1jN5OTzQ2SP3WTLqyoId0hhrYJJiJa11xFDI5Y0q0wTQ/edit |
+
+The edit link and the sheet open only for the owner account (or people it's shared
+with); the customer link works for anyone. The script is the Apps Script project
+**KD RMA form connector** in the same account.
+
 ## 1. In KD Helpdesk: an agent for the form
 
 1. **Admin → Agents → New agent**: first name `RMA`, last name `Form`, any email (e.g.
