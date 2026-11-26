@@ -7,7 +7,9 @@
   <div class="flex h-full min-h-0 flex-col">
     <!-- Header: view title + count -->
     <div class="flex shrink-0 items-center gap-3 border-b border-border px-4 pb-3 pt-4">
-      <SidebarTrigger class="cursor-pointer" />
+      <!-- KD: desktop collapses the main sidebar; phones open the menu as before -->
+      <KdSidebarToggle v-if="!isMobile" />
+      <SidebarTrigger v-else class="cursor-pointer" />
       <div class="min-w-0">
         <h1 class="truncate text-xl font-semibold" :title="title">{{ title }}</h1>
         <p class="text-xs text-muted-foreground tabular-nums">
@@ -159,6 +161,8 @@ import {
   DropdownMenuTrigger
 } from '@shared-ui/components/ui/dropdown-menu'
 import { SidebarTrigger } from '@shared-ui/components/ui/sidebar'
+import KdSidebarToggle from '@main/components/sidebar/KdSidebarToggle.vue'
+import { useIsMobile } from '@shared-ui/composables'
 import { formatFullTimestamp } from '@shared-ui/utils/datetime.js'
 import { useConversationStore } from '@/stores/conversation'
 import { useUsersStore } from '@/stores/users'
@@ -176,6 +180,7 @@ const sharedViewStore = useSharedViewStore()
 const viewStore = useViewStore()
 const { canBulkAct } = useBulkActionPermissions()
 const route = useRoute()
+const isMobile = useIsMobile()
 const router = useRouter()
 const { t } = useI18n()
 

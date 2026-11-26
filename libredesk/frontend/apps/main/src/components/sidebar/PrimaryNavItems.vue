@@ -13,7 +13,7 @@
           </router-link>
         </SidebarMenuButton>
       </TooltipTrigger>
-      <TooltipContent v-if="variant === 'rail'" side="right">
+      <TooltipContent v-if="variant === 'rail' || (variant === 'full' && collapsed)" side="right">
         <p>{{ item.label }}</p>
       </TooltipContent>
     </Tooltip>
@@ -29,6 +29,7 @@ import { Building2, Home, LayoutGrid, PackageOpen, Shield, Ticket, Users } from 
 import { SidebarMenuButton, SidebarMenuItem } from '@shared-ui/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared-ui/components/ui/tooltip'
 import { useUserStore } from '@main/stores/user'
+import { useKdSidebar } from '@main/composables/useKdSidebar'
 
 const props = defineProps({
   // 'rail' (icon only), 'drawer' (mobile nav drawer) or 'full' (KD desktop sidebar).
@@ -39,6 +40,8 @@ const props = defineProps({
 const route = useRoute()
 const { t } = useI18n()
 const userStore = useUserStore()
+// KD: labels show as tooltips while the main sidebar is collapsed
+const { collapsed } = useKdSidebar()
 
 const lastInboxPath = useStorage('lastInboxPath', '')
 

@@ -1,8 +1,12 @@
-<!-- KD: Zendesk-style tab strip for open tickets, shown above the ticket list/page. -->
+<!--
+  KD: Zendesk-style strip of open tickets above the ticket list/page. Its own
+  card like the panels below it; tabs look like the sidebar's items (active =
+  accent background).
+-->
 <template>
   <div
     v-if="store.tabs.length"
-    class="flex h-10 shrink-0 items-end gap-1 overflow-x-auto px-1"
+    class="mb-1 flex h-10 shrink-0 items-center gap-1 overflow-x-auto rounded-xl border border-border bg-background px-1.5 [scrollbar-width:none]"
     role="tablist"
     aria-label="Open tickets"
   >
@@ -12,21 +16,23 @@
       role="tab"
       :aria-selected="tab.uuid === activeUUID"
       :title="tab.title"
-      class="group flex h-9 min-w-[8rem] max-w-[15rem] shrink-0 cursor-pointer select-none items-center gap-2 rounded-t-lg border border-b-0 px-3 text-sm"
+      tabindex="0"
+      class="group flex h-7 min-w-[8rem] max-w-[15rem] shrink-0 cursor-pointer select-none items-center gap-2 rounded-md pl-2.5 pr-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       :class="
         tab.uuid === activeUUID
-          ? 'border-border bg-background text-foreground'
-          : 'border-transparent text-muted-foreground can-hover:hover:bg-accent/50 can-hover:hover:text-foreground'
+          ? 'bg-accent font-medium text-foreground'
+          : 'text-muted-foreground can-hover:hover:bg-accent/50 can-hover:hover:text-foreground'
       "
       @click="router.push(tab.route)"
+      @keydown.enter="router.push(tab.route)"
       @auxclick.middle.prevent="closeTab(tab)"
     >
-      <Ticket class="size-3.5 shrink-0" aria-hidden="true" />
+      <Ticket class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
       <span class="flex-1 truncate">{{ tab.title }}</span>
       <button
         type="button"
-        class="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-        :class="tab.uuid === activeUUID ? 'visible' : 'invisible group-hover:visible'"
+        class="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+        :class="tab.uuid === activeUUID ? 'visible' : 'invisible group-hover:visible group-focus-visible:visible'"
         aria-label="Close tab"
         @click.stop="closeTab(tab)"
       >

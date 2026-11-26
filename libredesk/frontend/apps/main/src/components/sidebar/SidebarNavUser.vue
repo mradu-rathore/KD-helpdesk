@@ -1,7 +1,7 @@
 <template>
   <DropdownMenu>
     <DropdownMenuTrigger as-child>
-      <SidebarMenuButton size="default" class="p-0">
+      <SidebarMenuButton size="default" class="p-0 group-data-[collapsible=icon]:!p-0">
         <div class="relative flex shrink-0">
           <Avatar class="h-8 w-8">
             <AvatarImage :src="userStore.avatar" alt="U" />
