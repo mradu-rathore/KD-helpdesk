@@ -50,6 +50,12 @@ function createRmaForm() {
     'We will email you an RMA number and return instructions.'
   );
   form.setConfirmationMessage('Thanks - your RMA request is in. We will email you the RMA number shortly.');
+  // Customers shouldn't need a Google account: no verified-email collection
+  // (the form asks for an email itself) and no one-response limit - both force
+  // sign-in. Also set Publish -> Responders -> "Anyone with the link" (README).
+  form.setCollectEmail(false);
+  form.setLimitOneResponsePerUser(false);
+  try { form.setRequireLogin(false); } catch (err) { /* only exists on Workspace accounts */ }
 
   form.addTextItem().setTitle('Your name').setRequired(true);
   form.addTextItem().setTitle('Email').setRequired(true)

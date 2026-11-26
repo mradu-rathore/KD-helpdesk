@@ -58,7 +58,9 @@ Form submissions show in RMA history and ticket timelines as "RMA Form".
    say `Connected to KD Helpdesk.`
 5. Choose one:
    - **A new form**: run **createRmaForm**. The log shows the link to send customers,
-     the edit link and the responses sheet.
+     the edit link and the responses sheet. Then open the edit link → **Published /
+     Publish → Manage → Responders: Anyone with the link**, so customers don't need a
+     Google account (check by opening the customer link in an incognito window).
    - **KD's existing RMA form**: add a script property `FORM_ID` (the long ID in the
      form's edit link, between `/d/` and `/edit`), then run **connectExistingForm**. The
      log lists each question and which RMA field it fills. To import requests made
@@ -104,6 +106,7 @@ The script's **Executions** page (left bar) shows each run and its log.
 | HTTP 403 | The form's agent is missing the **Agent** role. |
 | HTTP 400 "A valid email address is required" / "Add the product" | The form has no question the script recognises as email / product: rename the question or add its title to `FIELD_QUESTIONS`. |
 | HTTP 0 or 5xx | Helpdesk asleep or down. Once it's up, run `sendAllResponses`. |
+| Customers are asked to sign in to Google | In the form: **Publish → Manage → Responders: Anyone with the link**; **Settings → Responses**: Collect email addresses **Do not collect**, Limit to 1 response **off**. |
 
 ## Local testing
 
