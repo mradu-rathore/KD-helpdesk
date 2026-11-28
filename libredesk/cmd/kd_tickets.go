@@ -88,7 +88,7 @@ func handleKDCreateTicket(r *fastglue.Request) error {
 		}
 	}
 
-	uuid, err := kdLogTicket(app, contactID, req.CustomerID, req.Subject, kdTextToHTML(req.Body), auser.ID)
+	uuid, err := kdLogTicketFrom(app, "agent", contactID, req.CustomerID, req.Subject, kdTextToHTML(req.Body), auser.ID)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
 	}
@@ -122,16 +122,19 @@ func handleKDCreateTicket(r *fastglue.Request) error {
 	return r.SendEnvelope(conv)
 }
 
-// kdLogTicket logs a ticket in the default inbox from contactID, with bodyHTML
-// as the requester's first message (nothing is emailed), and links it to
-// customerID when > 0 (and the contact too, if they have no customer yet).
-// Used by New ticket and by RMAs. Returns the ticket's UUID.
-func kdLogTicket(app *App, contactID, customerID int, subject, bodyHTML string, actorID int) (string, error) {
+// kdLogTicketFrom logs a ticket in the default inbox from contactID, with
+// bodyHTML as the requester's first message (nothing is emailed), and links it
+// to customerID when > 0 (and the contact too, if they have no customer yet).
+// source is where it came from - "agent" (New ticket), "form" (RMA form) or
+// "phone" (a logged call) - kept in the ticket's meta for reporting.
+// Used by New ticket, RMAs and calls. Returns the ticket's UUID.
+func kdLogTicketFrom(app *App, source string, contactID, customerID int, subject, bodyHTML string, actorID int) (string, error) {
 	inboxID, err := kdDefaultInbox(app)
 	if err != nil {
 		return "", err
 	}
-	_, uuid, err := app.conversation.CreateConversation(contactID, inboxID, "", time.Now(), subject, false, nil, nil, 0, 0)
+	_, uuid, err := app.conversation.CreateConversation(contactID, inboxID, "", time.Now(), subject, false,
+		map[string]any{"kd_source": source}, nil, 0, 0)
 	if err != nil {
 		return "", err
 	}

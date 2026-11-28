@@ -82,7 +82,8 @@ BEGIN
     VALUES (v_contact, v_agent, v_team, v_inbox,
             (SELECT id FROM conversation_statuses WHERE name = CASE WHEN v_closed THEN 'Resolved' ELSE 'Open' END),
             (SELECT id FROM conversation_priorities WHERE name = 'Medium'),
-            v_no || ': ' || v_line, v_created, v_created, '{"kd_sample": true, "kd_sample_rma": true}')
+            v_no || ': ' || v_line, v_created, v_created,
+            jsonb_build_object('kd_sample', true, 'kd_sample_rma', true, 'kd_source', p_source))
     RETURNING id INTO v_conv;
 
     INSERT INTO conversation_messages (type, status, conversation_id, content_type, content, text_content, sender_id, sender_type, created_at)

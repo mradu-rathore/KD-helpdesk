@@ -63,17 +63,18 @@ var kdExports = map[string]kdExport{
 			ORDER BY LOWER(u.first_name), LOWER(COALESCE(u.last_name, '')), u.id`,
 	},
 	"tickets": {
-		header: []string{"Ticket name", "Pipeline", "Ticket status", "Priority", "Create date", "Close date",
+		header: []string{"Ticket name", "Pipeline", "Ticket status", "Priority", "Source", "Create date", "Close date",
 			"Ticket owner", "Ticket description", "Email", "Company Domain Name", "KD ticket number", "KD status"},
 		query: `
 			WITH t AS (` + kdTicketCustomer + `)
 			SELECT COALESCE(NULLIF(c.subject, ''), '(no subject)'), 'Support Pipeline', s.name,
-				COALESCE(p.name, ''), to_char(c.created_at, 'YYYY-MM-DD'),
+				COALESCE(p.name, ''), ` + kdTicketSource + `, to_char(c.created_at, 'YYYY-MM-DD'),
 				COALESCE(to_char(c.resolved_at, 'YYYY-MM-DD'), ''),
 				COALESCE(a.email, ''), COALESCE(` + kdExportThread + `, ''),
 				CASE WHEN COALESCE(cu.custom_attributes->>'kd_company_contact', '') = 'true' THEN '' ELSE COALESCE(cu.email, '') END,
 				COALESCE(k.domain, ''), c.reference_number, s.name
 			FROM conversations c
+			JOIN inboxes i ON i.id = c.inbox_id
 			JOIN conversation_statuses s ON s.id = c.status_id
 			LEFT JOIN conversation_priorities p ON p.id = c.priority_id
 			LEFT JOIN users a ON a.id = c.assigned_user_id
@@ -165,6 +166,10 @@ func kdHubSpotValues(kind string, header, row []string) {
 	}
 	switch kind {
 	case "tickets":
+		// HubSpot's ticket Source options are Phone, Email, Form and Chat.
+		if i := col("Source"); i >= 0 {
+			row[i] = map[string]string{"phone": "Phone", "email": "Email", "form": "Form", "livechat": "Chat"}[row[i]]
+		}
 		if i := col("Ticket status"); i >= 0 {
 			if s, ok := kdHubSpotTicketStatus[row[i]]; ok {
 				row[i] = s

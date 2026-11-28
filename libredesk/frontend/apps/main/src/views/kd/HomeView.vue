@@ -5,6 +5,9 @@
       <Button size="sm" variant="outline" class="h-8" @click="openSearch">
         <Search class="mr-1 size-3.5" /> Search
       </Button>
+      <Button size="sm" variant="outline" class="h-8" @click="logCall">
+        <PhoneCall class="mr-1 size-3.5" /> Log call
+      </Button>
       <Button size="sm" class="h-8" @click="newTicket">
         <Plus class="mr-1 size-3.5" /> New ticket
       </Button>
@@ -46,6 +49,45 @@
           @open="openTicket"
         />
       </div>
+
+      <!-- KD: call-backs promised on the phone and not made yet (the daily check) -->
+      <section class="overflow-hidden rounded-xl border border-border">
+        <div class="flex items-center justify-between border-b border-border px-4 py-3">
+          <h2 class="flex items-center gap-2 text-sm font-semibold">
+            Call backs waiting
+            <span v-if="callbacks.data.value?.length" :class="[BADGE, 'bg-amber-400 text-black']">{{ callbacks.data.value.length }}</span>
+          </h2>
+          <button type="button" class="text-xs text-muted-foreground hover:text-foreground" @click="logCall">Log a call</button>
+        </div>
+        <div v-if="callbacks.loading.value" class="space-y-3 p-4">
+          <Skeleton v-for="i in 2" :key="i" class="h-9 w-full" />
+        </div>
+        <ul v-else-if="callbacks.data.value?.length">
+          <li
+            v-for="c in callbacks.data.value"
+            :key="c.id"
+            class="flex cursor-pointer items-center gap-3 border-b border-border/60 px-4 py-2.5 transition-colors last:border-0 hover:bg-accent/50"
+            tabindex="0"
+            @click="openTicket(c.ticket_uuid)"
+            @keydown.enter="openTicket(c.ticket_uuid)"
+          >
+            <PhoneIncoming class="size-4 shrink-0 text-muted-foreground" />
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium">
+                {{ c.contact_name || 'Caller' }}<span v-if="c.customer_name" class="font-normal text-muted-foreground"> · {{ c.customer_name }}</span>
+              </p>
+              <p class="truncate text-xs text-muted-foreground">#{{ c.ticket_ref }} · {{ c.notes }}</p>
+            </div>
+            <span class="shrink-0 text-xs text-muted-foreground" :title="c.agent_name ? `Logged by ${c.agent_name}` : ''">
+              {{ formatDistanceToNowStrict(new Date(c.called_at), { addSuffix: true }) }}
+            </span>
+            <Button size="sm" variant="outline" class="h-7 shrink-0" @click.stop="callbackDone(c)">Done</Button>
+          </li>
+        </ul>
+        <p v-else class="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+          <PhoneCall class="size-4" /> No call backs waiting.
+        </p>
+      </section>
     </div>
   </KdPage>
 </template>
@@ -53,7 +95,7 @@
 <script setup>
 import { computed, defineComponent, h, resolveComponent } from 'vue'
 import { format, formatDistanceToNowStrict } from 'date-fns'
-import { ArrowRight, AtSign, Clock, Inbox, Plus, Search, UserRound, UserRoundX } from 'lucide-vue-next'
+import { ArrowRight, AtSign, Clock, Inbox, PhoneCall, PhoneIncoming, Plus, Search, UserRound, UserRoundX } from 'lucide-vue-next'
 import { Button } from '@shared-ui/components/ui/button'
 import { Skeleton } from '@shared-ui/components/ui/skeleton'
 import KdPage from '@main/components/layout/KdPage.vue'
@@ -61,7 +103,9 @@ import { useCachedResource } from '@main/composables/useCachedResource'
 import { useOpenTicket } from '@main/composables/useOpenTicket'
 import { useCommandPalette } from '@/features/command/useCommandPalette'
 import { useEmitter } from '@main/composables/useEmitter'
-import { EMITTER_EVENTS } from '@main/constants/emitterEvents'
+import { EMITTER_EVENTS, KD_EVENTS } from '@main/constants/emitterEvents'
+import { BADGE } from '@main/constants/kdRmas'
+import { handleHTTPError } from '@shared-ui/utils/http.js'
 import { statusClass } from '@main/constants/kdTickets'
 import { useUserStore } from '@main/stores/user'
 import { useSharedViewStore } from '@main/stores/sharedView'
@@ -119,6 +163,23 @@ const unassigned = viewTickets('Unassigned tickets')
 
 const openSearch = () => palette.openPalette()
 const newTicket = () => emitter.emit(EMITTER_EVENTS.OPEN_CREATE_CONVERSATION)
+
+// KD: phone calls - log one, and the call-backs still to make
+const logCall = () => emitter.emit(KD_EVENTS.LOG_CALL)
+const callbacks = useCachedResource('home:callbacks', async () => {
+  const res = await api.getCalls({ callback: 'open', limit: 20 })
+  return res.data.data || []
+})
+emitter.on(KD_EVENTS.CALL_LOGGED, () => callbacks.reload())
+async function callbackDone (call) {
+  try {
+    await api.markCallbackDone(call.id)
+    callbacks.mutate((callbacks.data.value || []).filter((c) => c.id !== call.id))
+    emitter.emit(EMITTER_EVENTS.SHOW_TOAST, { description: `Call back to ${call.contact_name || 'the caller'} marked done` })
+  } catch (err) {
+    emitter.emit(EMITTER_EVENTS.SHOW_TOAST, { variant: 'destructive', description: handleHTTPError(err).message })
+  }
+}
 
 const TicketPanel = defineComponent({
   props: { title: String, tickets: Array, loading: Boolean, to: Object, empty: String },

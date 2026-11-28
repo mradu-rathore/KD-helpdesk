@@ -228,6 +228,12 @@ const createRma = (data) => http.post('/api/v1/kd/rmas', data)
 const updateRma = (id, data) => http.put(`/api/v1/kd/rmas/${id}`, data)
 const setRmaStatus = (id, data) => http.post(`/api/v1/kd/rmas/${id}/status`, data)
 const getTicketRmas = (uuid) => http.get(`/api/v1/conversations/${uuid}/rmas`)
+// KD: phone calls
+const findCallers = (q) => http.get('/api/v1/kd/calls/callers', { params: { q } })
+const logCall = (data) => http.post('/api/v1/kd/calls', data)
+const getCalls = (params) => http.get('/api/v1/kd/calls', { params })
+const getTicketCalls = (uuid) => http.get(`/api/v1/conversations/${uuid}/calls`)
+const markCallbackDone = (id) => http.post(`/api/v1/kd/calls/${id}/callback-done`)
 const getContact = (id) => http.get(`/api/v1/contacts/${id}`)
 const createContact = (data) =>
   http.post('/api/v1/contacts', data, {
@@ -916,6 +922,11 @@ export default {
   updateRma,
   setRmaStatus,
   getTicketRmas,
+  findCallers,
+  logCall,
+  getCalls,
+  getTicketCalls,
+  markCallbackDone,
   getContact,
   createContact,
   updateContact,

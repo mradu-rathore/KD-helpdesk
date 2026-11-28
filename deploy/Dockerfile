@@ -36,6 +36,7 @@ COPY deploy/start.sh ./start.sh
 COPY dev/seed.sql ./seed.sql
 COPY dev/seed-customers.sql ./seed-customers.sql
 COPY dev/seed-rmas.sql ./seed-rmas.sql
+COPY dev/seed-calls.sql ./seed-calls.sql
 RUN mkdir -p uploads && chown -R libredesk:libredesk /libredesk && chmod +x start.sh
 USER libredesk
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Load KD sample data (fictional agents, customers, tickets and RMAs) into the local database.
+# Load KD sample data (fictional agents, customers, tickets, RMAs and calls) into the local database.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/local/secrets.env"
 PG_BIN="${PG_BIN:-/opt/homebrew/opt/postgresql@16/bin}"
 PGPASSWORD="$DB_PASSWORD" "$PG_BIN/psql" -h 127.0.0.1 -p 5434 -U libredesk -d libredesk \
-  -v ON_ERROR_STOP=1 -q -f "$ROOT/dev/seed.sql" -f "$ROOT/dev/seed-customers.sql" -f "$ROOT/dev/seed-rmas.sql"
+  -v ON_ERROR_STOP=1 -q -f "$ROOT/dev/seed.sql" -f "$ROOT/dev/seed-customers.sql" -f "$ROOT/dev/seed-rmas.sql" -f "$ROOT/dev/seed-calls.sql"
 echo "Sample data loaded."

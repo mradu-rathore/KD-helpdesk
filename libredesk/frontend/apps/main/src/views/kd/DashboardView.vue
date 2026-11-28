@@ -103,13 +103,14 @@
                 <th class="px-3 py-2 text-right font-medium">Open</th>
                 <th class="px-3 py-2 text-right font-medium">Pending</th>
                 <th class="px-3 py-2 text-right font-medium">Solved ({{ days }}d)</th>
+                <th class="px-3 py-2 text-right font-medium">Calls ({{ days }}d)</th>
                 <th class="px-4 py-2 text-right font-medium">Avg first reply</th>
               </tr>
             </thead>
             <tbody>
               <template v-if="loading">
                 <tr v-for="i in 4" :key="i" class="border-b border-border/60">
-                  <td class="px-4 py-2.5" colspan="5"><Skeleton class="h-4 w-full" /></td>
+                  <td class="px-4 py-2.5" colspan="6"><Skeleton class="h-4 w-full" /></td>
                 </tr>
               </template>
               <tr v-for="a in agents" v-else :key="a.id" class="border-b border-border/60 last:border-0">
@@ -125,6 +126,7 @@
                 <td class="px-3 py-2 text-right tabular-nums" :class="a.open ? 'font-medium' : 'text-muted-foreground'">{{ a.open }}</td>
                 <td class="px-3 py-2 text-right tabular-nums text-muted-foreground">{{ a.waiting }}</td>
                 <td class="px-3 py-2 text-right tabular-nums">{{ a.solved }}</td>
+                <td class="px-3 py-2 text-right tabular-nums" :class="a.calls ? '' : 'text-muted-foreground'">{{ a.calls }}</td>
                 <td class="px-4 py-2 text-right tabular-nums text-muted-foreground">{{ duration(a.avg_first_response_secs) }}</td>
               </tr>
             </tbody>
@@ -144,6 +146,33 @@
             <BarList :items="data?.by_customer || []" :loading="loading" empty="No open tickets linked to customers" />
           </section>
         </div>
+      </div>
+
+      <!-- KD: phone calls and where tickets come from -->
+      <div class="flex items-center justify-between border-t border-border pt-5">
+        <h2 class="text-base font-semibold">Phone and channels</h2>
+        <button type="button" class="text-xs text-muted-foreground hover:text-foreground" @click="logCall">Log a call</button>
+      </div>
+      <div class="grid gap-5 xl:grid-cols-3">
+        <div class="grid grid-cols-2 content-start gap-3 self-start xl:col-span-2 md:grid-cols-4">
+          <component
+            :is="tile.to ? 'router-link' : 'div'"
+            v-for="tile in callTiles"
+            :key="tile.label"
+            :to="tile.to"
+            class="rounded-xl border border-border p-4 transition-colors"
+            :class="tile.to ? 'hover:border-foreground/30 hover:bg-accent/40' : ''"
+          >
+            <p class="text-xs text-muted-foreground">{{ tile.label }}</p>
+            <Skeleton v-if="loading" class="mt-2 h-7 w-12" />
+            <p v-else class="mt-1 text-2xl font-semibold tabular-nums">{{ tile.value }}</p>
+            <p class="mt-0.5 text-[11px] text-muted-foreground">{{ tile.hint }}</p>
+          </component>
+        </div>
+        <section class="rounded-xl border border-border p-4">
+          <h2 class="mb-3 text-sm font-semibold">New tickets by channel ({{ days }}d)</h2>
+          <BarList :items="calls.by_channel || []" :loading="loading" :color="channelColor" empty="No new tickets in this period" />
+        </section>
       </div>
 
       <!-- KD: returns (RMAs) -->
@@ -212,6 +241,8 @@ import { initials } from '@/features/customer/initials'
 import { statusClass } from '@main/constants/kdTickets'
 import { RMA_STATUSES, outcomeLabel, rmaStatus } from '@main/constants/kdRmas'
 import api from '@main/api'
+import { useEmitter } from '@main/composables/useEmitter'
+import { KD_EVENTS } from '@main/constants/emitterEvents'
 
 defineOptions({ name: 'DashboardView' })
 
@@ -228,6 +259,7 @@ const days = useStorage('kd_dashboard_days', 30)
 const loadedAt = ref(null)
 const now = useNow({ interval: 30_000 })
 const sharedViewStore = useSharedViewStore()
+const emitter = useEmitter()
 
 const { data, loading, refreshing, reload } = useCachedResource(
   computed(() => `dashboard:${days.value}`),
@@ -280,6 +312,21 @@ const trendLabel = computed(
 )
 
 // KD: returns (RMAs)
+// KD: phone calls and channels
+const calls = computed(() => data.value?.calls || {})
+const callTiles = computed(() => {
+  const t = calls.value.totals || {}
+  return [
+    { label: 'Calls logged', value: t.calls ?? 0, hint: `${t.incoming ?? 0} in · ${t.outgoing ?? 0} out, ${days.value}d`, to: null },
+    { label: 'Call backs waiting', value: t.callbacks_due ?? 0, hint: 'Promised, not made yet', to: { name: 'home' } },
+    { label: 'Tickets from calls', value: t.phone_tickets ?? 0, hint: `Last ${days.value} days`, to: null },
+    { label: 'Calls today', value: t.today ?? 0, hint: 'Logged since midnight', to: null }
+  ]
+})
+const CHANNEL_COLORS = { phone: 'bg-violet-600', email: 'bg-sky-500', 'rma form': 'bg-amber-400', 'logged in app': 'bg-zinc-500', 'live chat': 'bg-emerald-500' }
+const channelColor = (name) => CHANNEL_COLORS[String(name).toLowerCase()] || 'bg-zinc-400'
+const logCall = () => emitter.emit(KD_EVENTS.LOG_CALL)
+
 const rmas = computed(() => data.value?.rmas || {})
 const rmaTotals = computed(() => rmas.value.totals || {})
 const rmaList = (status) => ({ name: 'rmas', query: { status } })

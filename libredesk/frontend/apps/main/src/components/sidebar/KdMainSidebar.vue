@@ -67,6 +67,13 @@
                 <span>{{ t('conversation.newConversation') }}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <!-- KD: most support starts with a phone call -->
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Log call" @click="emitter.emit(KD_EVENTS.LOG_CALL)">
+                <PhoneCall />
+                <span>Log call</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <PrimaryNavItems variant="full" :include-admin="false" />
           </SidebarMenu>
         </SidebarGroup>
@@ -96,7 +103,9 @@
 import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Search, Settings, SquarePen } from 'lucide-vue-next'
+import { PhoneCall, Search, Settings, SquarePen } from 'lucide-vue-next'
+import { useEmitter } from '@main/composables/useEmitter'
+import { KD_EVENTS } from '@main/constants/emitterEvents'
 import {
   Sidebar as ShadcnSidebar,
   SidebarContent,
@@ -127,6 +136,7 @@ const userStore = useUserStore()
 const conversationStore = useConversationStore()
 const settingsStore = useAppSettingsStore()
 const { collapsed } = useKdSidebar()
+const emitter = useEmitter()
 
 const siteName = computed(() => {
   const name = settingsStore.settings?.['app.site_name']

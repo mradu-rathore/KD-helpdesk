@@ -27,6 +27,7 @@ type kdDashAgent struct {
 	Waiting          int      `db:"waiting" json:"waiting"`
 	Solved           int      `db:"solved" json:"solved"`
 	AvgFirstResponse *float64 `db:"avg_first_response" json:"avg_first_response_secs"`
+	Calls            int      `db:"calls" json:"calls"`
 }
 
 type kdDashDay struct {
@@ -71,7 +72,8 @@ func handleKDDashboard(r *fastglue.Request) error {
 			COUNT(c.id) FILTER (WHERE s.category = 'waiting') AS waiting,
 			COUNT(c.id) FILTER (WHERE c.resolved_at >= NOW() - make_interval(days => $1)) AS solved,
 			AVG(EXTRACT(EPOCH FROM c.first_reply_at - c.created_at))
-				FILTER (WHERE c.first_reply_at IS NOT NULL AND c.created_at >= NOW() - make_interval(days => $1)) AS avg_first_response
+				FILTER (WHERE c.first_reply_at IS NOT NULL AND c.created_at >= NOW() - make_interval(days => $1)) AS avg_first_response,
+			(SELECT COUNT(*) FROM kd_calls kc WHERE kc.user_id = u.id AND kc.called_at >= NOW() - make_interval(days => $1)) AS calls
 		FROM users u
 		LEFT JOIN conversations c ON c.assigned_user_id = u.id
 		LEFT JOIN conversation_statuses s ON s.id = c.status_id
@@ -130,6 +132,10 @@ func handleKDDashboard(r *fastglue.Request) error {
 	if err != nil {
 		return kdServerError(r, err)
 	}
+	calls, err := kdDashboardCalls(app, days)
+	if err != nil {
+		return kdServerError(r, err)
+	}
 
 	return r.SendEnvelope(map[string]any{
 		"days":        days,
@@ -140,6 +146,7 @@ func handleKDDashboard(r *fastglue.Request) error {
 		"by_priority": byPriority,
 		"by_customer": byCustomer,
 		"rmas":        rmas,
+		"calls":       calls,
 	})
 }
 
@@ -218,4 +225,46 @@ func kdDashboardRmas(app *App, days int) (map[string]any, error) {
 		"by_supplier": bySupplier,
 		"by_outcome":  byOutcome,
 	}, nil
+}
+
+type kdDashCallTotals struct {
+	Calls        int `db:"calls" json:"calls"`
+	Today        int `db:"today" json:"today"`
+	Incoming     int `db:"incoming" json:"incoming"`
+	Outgoing     int `db:"outgoing" json:"outgoing"`
+	CallbacksDue int `db:"callbacks_due" json:"callbacks_due"`
+	PhoneTickets int `db:"phone_tickets" json:"phone_tickets"`
+}
+
+// kdDashboardCalls: calls logged in the period, call-backs still to make, and
+// where the period's new tickets came from (phone, email, RMA form, app).
+func kdDashboardCalls(app *App, days int) (map[string]any, error) {
+	var totals kdDashCallTotals
+	if err := app.db.Get(&totals, `
+		SELECT
+			COUNT(*) FILTER (WHERE called_at >= NOW() - make_interval(days => $1)) AS calls,
+			COUNT(*) FILTER (WHERE called_at >= date_trunc('day', NOW())) AS today,
+			COUNT(*) FILTER (WHERE direction = 'incoming' AND called_at >= NOW() - make_interval(days => $1)) AS incoming,
+			COUNT(*) FILTER (WHERE direction = 'outgoing' AND called_at >= NOW() - make_interval(days => $1)) AS outgoing,
+			COUNT(*) FILTER (WHERE callback_needed AND callback_done_at IS NULL) AS callbacks_due,
+			(SELECT COUNT(*) FROM conversations c WHERE c.meta->>'kd_source' = 'phone'
+				AND c.created_at >= NOW() - make_interval(days => $1)) AS phone_tickets
+		FROM kd_calls`, days); err != nil {
+		return nil, err
+	}
+
+	byChannel := []kdDashCount{}
+	if err := app.db.Select(&byChannel, `
+		SELECT `+kdTicketSource+` AS name, COUNT(*) AS count
+		FROM conversations c JOIN inboxes i ON i.id = c.inbox_id
+		WHERE c.created_at >= NOW() - make_interval(days => $1)
+		GROUP BY 1 ORDER BY count DESC`, days); err != nil {
+		return nil, err
+	}
+	for i := range byChannel {
+		if label, ok := kdSourceLabels[byChannel[i].Name]; ok {
+			byChannel[i].Name = label
+		}
+	}
+	return map[string]any{"totals": totals, "by_channel": byChannel}, nil
 }

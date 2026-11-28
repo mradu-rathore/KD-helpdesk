@@ -29,3 +29,9 @@ export const CONTACT_ACTIONS = {
     DELETE: 'delete',
     ADD_NOTE: 'add-note'
 }
+
+// KD: open the Log call dialog ({ ticket? }), and tell open panels a call was logged ({ uuid })
+export const KD_EVENTS = {
+    LOG_CALL: 'kd-log-call',
+    CALL_LOGGED: 'kd-call-logged'
+}

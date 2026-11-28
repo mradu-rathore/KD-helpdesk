@@ -39,6 +39,12 @@ if [ "${KD_LOAD_SAMPLE_DATA:-false}" = "true" ]; then
     echo "Loading KD sample RMAs..."
     psql -v ON_ERROR_STOP=1 -q -f seed-rmas.sql
   fi
+  # Sample phone calls (added after the RMAs; loaded once, when there are none yet)
+  calls=$(psql -tAc "SELECT count(*) FROM kd_calls" || echo 1)
+  if [ "$calls" = "0" ]; then
+    echo "Loading KD sample calls..."
+    psql -v ON_ERROR_STOP=1 -q -f seed-calls.sql
+  fi
 fi
 
 exec ./libredesk --config config.toml

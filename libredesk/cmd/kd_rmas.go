@@ -594,7 +594,11 @@ func kdRmaOpenTicket(app *App, rma *kdRma, contactID, actorID int, body string) 
 		customerID = *rma.CustomerID
 	}
 	subject := rma.Number + ": " + kdRmaLine(rma.Quantity, rma.Brand, rma.Product)
-	uuid, err := kdLogTicket(app, contactID, customerID, subject, body, actorID)
+	source := "agent"
+	if rma.Source == "form" {
+		source = "form"
+	}
+	uuid, err := kdLogTicketFrom(app, source, contactID, customerID, subject, body, actorID)
 	if err == nil {
 		if _, uerr := app.db.Exec(`UPDATE kd_rmas SET conversation_id = (SELECT id FROM conversations WHERE uuid = $2) WHERE id = $1`, rma.ID, uuid); uerr != nil {
 			app.lo.Error("kd rmas: error linking ticket", "error", uerr)

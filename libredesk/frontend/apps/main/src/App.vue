@@ -55,6 +55,9 @@
   />
 
   <KeyboardShortcutsDialog v-model:open="showShortcuts" />
+
+  <!-- KD: log a phone call (sidebar, Home, ticket panel) -->
+  <LogCallDialog v-model:open="logCallOpen" :ticket="logCallTicket" />
 </template>
 
 <script setup>
@@ -94,6 +97,8 @@ import { hasNewConversationDraft } from '@/features/conversation/useNewConversat
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import KdMainSidebar from '@main/components/sidebar/KdMainSidebar.vue'
+import LogCallDialog from '@/features/call/LogCallDialog.vue'
+import { KD_EVENTS } from './constants/emitterEvents.js'
 import { useIsMobile } from '@shared-ui/composables'
 import api from '@main/api'
 import { usePushNotifications } from '@/composables/usePushNotifications'
@@ -144,6 +149,8 @@ const openCreateConversationDialog = ref(hasSavedDraft)
 const createConversationContact = ref(null)
 const createConversationMinimized = ref(hasSavedDraft)
 const createConversationRef = ref(null)
+const logCallOpen = ref(false)
+const logCallTicket = ref(null)
 const { t } = useI18n()
 const notificationStore = useNotificationStore()
 const aiPromptStore = useAiPromptStore()
@@ -191,6 +198,10 @@ onMounted(() => {
   listenViewRefresh()
   emitter.on(EMITTER_EVENTS.OPEN_CREATE_CONVERSATION, openCreateConversation)
   emitter.on(EMITTER_EVENTS.OPEN_VIEW_FORM, createView)
+  emitter.on(KD_EVENTS.LOG_CALL, ({ ticket = null } = {}) => {
+    logCallTicket.value = ticket
+    logCallOpen.value = true
+  })
   initStores()
 })
 
